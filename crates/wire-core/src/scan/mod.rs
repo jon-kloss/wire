@@ -33,8 +33,13 @@ pub fn scan_and_create_collection(
         .unwrap_or_else(|| "Scanned API".to_string());
 
     let wire_dir = output_dir.join(".wire");
+    // Clear old requests on re-scan so stale endpoints don't persist
+    let requests_dir = wire_dir.join("requests");
+    if requests_dir.is_dir() {
+        std::fs::remove_dir_all(&requests_dir)?;
+    }
     std::fs::create_dir_all(wire_dir.join("envs"))?;
-    std::fs::create_dir_all(wire_dir.join("requests"))?;
+    std::fs::create_dir_all(&requests_dir)?;
 
     // Write collection metadata with dev as default environment
     let metadata = WireCollection {

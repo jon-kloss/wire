@@ -489,19 +489,56 @@
   cursor: pointer;
 }
 
-.url-input {
+.url-input-wrapper {
   flex: 1;
+  position: relative;
   background: #3c3c3c;
-  color: #d4d4d4;
   border: 1px solid #555;
   border-radius: 4px;
-  padding: 6px 12px;
-  font-size: 13px;
-  outline: none;
+  overflow: hidden;
 }
 
-.url-input:focus {
+.url-input-wrapper:focus-within {
   border-color: #007acc;
+}
+
+.url-input {
+  width: 100%;
+  background: transparent;
+  color: transparent;
+  caret-color: #d4d4d4;
+  border: none;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  position: relative;
+  z-index: 1;
+}
+
+.url-highlight {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #d4d4d4;
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+
+.url-variable {
+  color: #4ec9b0;
+}
+
+.url-placeholder {
+  color: #666;
 }
 
 .send-btn {

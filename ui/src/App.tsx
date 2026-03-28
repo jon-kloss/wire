@@ -909,14 +909,28 @@ function App() {
             <option value="PATCH">PATCH</option>
             <option value="DELETE">DELETE</option>
           </select>
-          <input
-            className="url-input"
-            type="text"
-            placeholder="Enter request URL..."
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSend()}
-          />
+          <div className="url-input-wrapper">
+            <div className="url-highlight" aria-hidden="true">
+              {url
+                ? url.split(/(\{\{[^}]+\}\})/).map((part, i) =>
+                    part.match(/^\{\{[^}]+\}\}$/) ? (
+                      <span key={i} className="url-variable">
+                        {part}
+                      </span>
+                    ) : (
+                      <span key={i}>{part}</span>
+                    )
+                  )
+                : <span className="url-placeholder">Enter request URL...</span>}
+            </div>
+            <input
+              className="url-input"
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSend()}
+            />
+          </div>
           <button className="send-btn" onClick={handleSend} disabled={loading}>
             {loading ? "Sending..." : "Send"}
           </button>
