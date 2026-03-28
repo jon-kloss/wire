@@ -521,10 +521,12 @@
 
 .url-input-wrapper {
   flex: 1;
+  min-width: 0;
   position: relative;
   background: #3c3c3c;
   border: 1px solid #555;
   border-radius: 4px;
+  overflow: hidden;
 }
 
 .url-input-wrapper:focus-within {
@@ -600,6 +602,7 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .send-btn:hover {
@@ -615,6 +618,7 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .save-btn:hover {
