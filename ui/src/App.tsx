@@ -117,6 +117,9 @@ function App() {
   const [selectedRequestPath, setSelectedRequestPath] = useState<string | null>(
     null
   );
+  const [selectedRequestName, setSelectedRequestName] = useState<string | null>(
+    null
+  );
 
   // Sidebar state
   const [sidebarTab, setSidebarTab] = useState<"collections" | "activity">(
@@ -169,6 +172,7 @@ function App() {
     setHeadersText("");
     setBodyText("");
     setSelectedRequestPath(null);
+    setSelectedRequestName(null);
     setResponse(null);
     setError(null);
   }, []);
@@ -232,6 +236,7 @@ function App() {
     setUrl(importUrl.trim());
     setMethod("GET");
     setSelectedRequestPath(null);
+    setSelectedRequestName(null);
     setResponse(null);
     setError(null);
   }, [showPrompt]);
@@ -239,9 +244,11 @@ function App() {
   const handleDeleteCollection = useCallback((path: string) => {
     setCollections((prev) => prev.filter((c) => c.path !== path));
     setActiveCollectionPath((prev) => (prev === path ? null : prev));
-    setSelectedEnv((prev) => {
-      // Clear env if the deleted collection was active
-      // We use a separate check via activeCollectionPath's functional form above
+    setSelectedRequestPath((prev) => {
+      if (prev && prev.startsWith(path)) {
+        setSelectedRequestName(null);
+        return null;
+      }
       return prev;
     });
     setExpandedCollections((prev) => {
@@ -311,6 +318,7 @@ function App() {
         setHeadersText("");
         setBodyText("");
         setSelectedRequestPath(filePath);
+        setSelectedRequestName(name.trim());
         setResponse(null);
         setError(null);
       } catch (err) {
@@ -326,17 +334,32 @@ function App() {
       return;
     }
 
-    let defaultName = "request";
-    try {
-      if (url) defaultName = new URL(url).pathname.split("/").pop() || "request";
-    } catch {
-      // invalid URL — use default
-    }
-    const name = await showPrompt("Request name:", defaultName);
-    if (!name?.trim()) return;
+    // Determine save path: reuse existing path or prompt for a new name
+    let filePath: string;
+    let requestName: string;
 
-    const fileName = name.trim().replace(/\s+/g, "-").toLowerCase() + ".wire.yaml";
-    const filePath = activeCollectionPath + "/requests/" + fileName;
+    if (
+      selectedRequestPath &&
+      selectedRequestPath.startsWith(activeCollectionPath)
+    ) {
+      // Existing request in the active collection — overwrite in place
+      filePath = selectedRequestPath;
+      requestName = selectedRequestName ?? "request";
+    } else {
+      // New request — prompt for name
+      let defaultName = "request";
+      try {
+        if (url) defaultName = new URL(url).pathname.split("/").pop() || "request";
+      } catch {
+        // invalid URL — use default
+      }
+      const name = await showPrompt("Request name:", defaultName);
+      if (!name?.trim()) return;
+
+      requestName = name.trim();
+      const fileName = requestName.replace(/\s+/g, "-").toLowerCase() + ".wire.yaml";
+      filePath = activeCollectionPath + "/requests/" + fileName;
+    }
 
     try {
       const headers: Record<string, string> = {};
@@ -359,7 +382,7 @@ function App() {
       }
 
       const request: WireRequest = {
-        name: name.trim(),
+        name: requestName,
         method,
         url,
         headers,
@@ -368,6 +391,10 @@ function App() {
       };
 
       await invoke("save_request", { path: filePath, request });
+
+      // Track the saved path/name so subsequent saves overwrite
+      setSelectedRequestPath(filePath);
+      setSelectedRequestName(requestName);
 
       // Refresh the specific collection
       const info = await invoke<IpcCollectionInfo>("open_collection", {
@@ -381,7 +408,7 @@ function App() {
     } catch (err) {
       setError(String(err));
     }
-  }, [method, url, headersText, bodyText, activeCollectionPath, showPrompt]);
+  }, [method, url, headersText, bodyText, activeCollectionPath, selectedRequestPath, selectedRequestName, showPrompt]);
 
   const handleSelectRequest = useCallback(
     async (entry: IpcRequestEntry) => {
@@ -410,6 +437,7 @@ function App() {
         }
 
         setSelectedRequestPath(entry.path);
+        setSelectedRequestName(req.name);
         setResponse(null);
         setError(null);
       } catch (err) {
@@ -722,6 +750,7 @@ function App() {
                       setMethod(entry.method);
                       setUrl(entry.url);
                       setSelectedRequestPath(null);
+                      setSelectedRequestName(null);
                       setResponse(null);
                       setError(null);
                     }}
