@@ -121,6 +121,7 @@ function App() {
   // Per-collection environment state (keyed by collection path)
   const [envSelectedMap, setEnvSelectedMap] = useState<Record<string, string | null>>({});
   const [envVarsMap, setEnvVarsMap] = useState<Record<string, Record<string, string>>>({});
+  const [expandedEnvSections, setExpandedEnvSections] = useState<Set<string>>(new Set());
   const [selectedRequestPath, setSelectedRequestPath] = useState<string | null>(
     null
   );
@@ -788,83 +789,107 @@ function App() {
                       </div>
                     </div>
                     {isExpanded && (
-                      <div className="collection-requests">
-                        {sorted.length === 0 && (
-                          <p className="placeholder collection-empty">
-                            {filterText
-                              ? "No matching requests"
-                              : "No requests yet"}
-                          </p>
-                        )}
-                        {sorted.map((child) => (
-                          <TreeItem
-                            key={child.entry?.path ?? child.name}
-                            node={child}
-                            depth={1}
-                            onSelect={async (entry) => {
-                              // Sync backend state when switching collections
-                              if (path !== activeCollectionPath) {
-                                try {
-                                  await invoke("open_collection", { wireDir: path });
-                                } catch { /* already open or will fail on send */ }
-                              }
-                              setActiveCollectionPath(path);
-                              handleSelectRequest(entry);
-                            }}
-                            selectedPath={selectedRequestPath}
-                          />
-                        ))}
+                      <div className="collection-body">
                         {info.environments.length > 0 && (
-                          <div className="collection-env-section">
-                            <div className="collection-env-header">
-                              <select
-                                className="env-select"
-                                value={envSelectedMap[path] ?? ""}
-                                onChange={(e) => {
-                                  const val = e.target.value === "" ? null : e.target.value;
-                                  setEnvSelectedMap((prev) => ({ ...prev, [path]: val }));
-                                  // Load the env vars for this collection
-                                  if (val) {
-                                    invoke<Record<string, string>>("get_environment", {
-                                      wireDir: path,
-                                      envName: val,
-                                    })
-                                      .then((vars) => setEnvVarsMap((prev) => ({ ...prev, [path]: vars })))
-                                      .catch(() => setEnvVarsMap((prev) => ({ ...prev, [path]: {} })));
+                          <div className="collection-env-accordion">
+                            <div
+                              className="collection-env-toggle"
+                              onClick={() =>
+                                setExpandedEnvSections((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(path)) {
+                                    next.delete(path);
                                   } else {
-                                    setEnvVarsMap((prev) => ({ ...prev, [path]: {} }));
+                                    next.add(path);
                                   }
-                                }}
-                              >
-                                <option value="">(no env)</option>
-                                {info.environments.map((env) => (
-                                  <option key={env} value={env}>
-                                    {env}
-                                  </option>
-                                ))}
-                              </select>
+                                  return next;
+                                })
+                              }
+                            >
+                              <span className="folder-icon">
+                                {expandedEnvSections.has(path) ? "\u25BE" : "\u25B8"}
+                              </span>
+                              <span className="collection-env-label">Environments</span>
+                              <span className="collection-count">
+                                {info.environments.length}
+                              </span>
                             </div>
-                            {envSelectedMap[path] &&
-                              envVarsMap[path] &&
-                              Object.keys(envVarsMap[path]).length > 0 && (
-                                <div className="env-vars-editor">
-                                  {Object.entries(envVarsMap[path]).map(([key, value]) => (
-                                    <div key={key} className="env-var-row">
-                                      <label className="env-var-label">{key}</label>
-                                      <input
-                                        className="env-var-input"
-                                        type="text"
-                                        value={value}
-                                        onChange={(e) =>
-                                          handleSaveEnvVar(path, envSelectedMap[path]!, key, e.target.value)
-                                        }
-                                      />
-                                    </div>
+                            {expandedEnvSections.has(path) && (
+                              <div className="collection-env-section">
+                                <select
+                                  className="env-select"
+                                  value={envSelectedMap[path] ?? ""}
+                                  onChange={(e) => {
+                                    const val = e.target.value === "" ? null : e.target.value;
+                                    setEnvSelectedMap((prev) => ({ ...prev, [path]: val }));
+                                    if (val) {
+                                      invoke<Record<string, string>>("get_environment", {
+                                        wireDir: path,
+                                        envName: val,
+                                      })
+                                        .then((vars) => setEnvVarsMap((prev) => ({ ...prev, [path]: vars })))
+                                        .catch(() => setEnvVarsMap((prev) => ({ ...prev, [path]: {} })));
+                                    } else {
+                                      setEnvVarsMap((prev) => ({ ...prev, [path]: {} }));
+                                    }
+                                  }}
+                                >
+                                  <option value="">(no env)</option>
+                                  {info.environments.map((env) => (
+                                    <option key={env} value={env}>
+                                      {env}
+                                    </option>
                                   ))}
-                                </div>
-                              )}
+                                </select>
+                                {envSelectedMap[path] &&
+                                  envVarsMap[path] &&
+                                  Object.keys(envVarsMap[path]).length > 0 && (
+                                    <div className="env-vars-editor">
+                                      {Object.entries(envVarsMap[path]).map(([key, value]) => (
+                                        <div key={key} className="env-var-row">
+                                          <label className="env-var-label">{key}</label>
+                                          <input
+                                            className="env-var-input"
+                                            type="text"
+                                            value={value}
+                                            onChange={(e) =>
+                                              handleSaveEnvVar(path, envSelectedMap[path]!, key, e.target.value)
+                                            }
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                              </div>
+                            )}
                           </div>
                         )}
+                        <div className="collection-requests">
+                          {sorted.length === 0 && (
+                            <p className="placeholder collection-empty">
+                              {filterText
+                                ? "No matching requests"
+                                : "No requests yet"}
+                            </p>
+                          )}
+                          {sorted.map((child) => (
+                            <TreeItem
+                              key={child.entry?.path ?? child.name}
+                              node={child}
+                              depth={1}
+                              onSelect={async (entry) => {
+                                if (path !== activeCollectionPath) {
+                                  try {
+                                    await invoke("open_collection", { wireDir: path });
+                                  } catch { /* already open or will fail on send */ }
+                                }
+                                setActiveCollectionPath(path);
+                                handleSelectRequest(entry);
+                              }}
+                              selectedPath={selectedRequestPath}
+                            />
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
