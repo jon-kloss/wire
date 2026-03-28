@@ -60,24 +60,39 @@ pub fn scan_and_create_collection(
     let metadata_yaml = serde_yaml::to_string(&metadata)?;
     std::fs::write(wire_dir.join("wire.yaml"), metadata_yaml)?;
 
+    // Collect all unique route parameters from endpoints
+    let route_param_re = regex::Regex::new(r"\{\{(\w+)\}\}").unwrap();
+    let mut route_params = std::collections::BTreeSet::new();
+    for endpoint in &scan.endpoints {
+        for cap in route_param_re.captures_iter(&endpoint.route) {
+            route_params.insert(cap[1].to_string());
+        }
+    }
+
     // Write discovered environments, or fall back to default dev.yaml
+    // Inject route params as empty variables into every environment
     if discovered_envs.is_empty() {
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("schema".to_string(), "http".to_string());
+        vars.insert("baseUrl".to_string(), "localhost:3000".to_string());
+        for param in &route_params {
+            vars.entry(param.clone()).or_insert_with(String::new);
+        }
         let dev_env = Environment {
             name: "Development".to_string(),
-            variables: {
-                let mut vars = std::collections::HashMap::new();
-                vars.insert("schema".to_string(), "http".to_string());
-                vars.insert("baseUrl".to_string(), "localhost:3000".to_string());
-                vars
-            },
+            variables: vars,
         };
         let dev_yaml = serde_yaml::to_string(&dev_env)?;
         std::fs::write(wire_dir.join("envs/dev.yaml"), dev_yaml)?;
     } else {
         for env in &discovered_envs {
+            let mut variables = env.variables.clone();
+            for param in &route_params {
+                variables.entry(param.clone()).or_insert_with(String::new);
+            }
             let wire_env = Environment {
                 name: env.name.clone(),
-                variables: env.variables.clone(),
+                variables,
             };
             let yaml = serde_yaml::to_string(&wire_env)?;
             std::fs::write(
