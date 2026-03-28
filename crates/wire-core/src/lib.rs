@@ -2,6 +2,7 @@ pub mod collection;
 pub mod error;
 pub mod history;
 pub mod http;
+pub mod scan;
 pub mod variables;
 
 #[cfg(test)]
