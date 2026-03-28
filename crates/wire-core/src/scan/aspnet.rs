@@ -225,9 +225,9 @@ fn build_route(base: &str, method_route: &str) -> String {
     format!("/{base}/{method_route}")
 }
 
-/// Convert ASP.NET route parameters {param} to Wire {{param}} syntax.
+/// Convert ASP.NET route parameters {param} or {param:constraint} to Wire {{param}} syntax.
 fn convert_route_params(route: &str) -> String {
-    let re = Regex::new(r"\{(\w+)\}").unwrap();
+    let re = Regex::new(r"\{(\w+)(?::[^}]*)?\}").unwrap();
     re.replace_all(route, "{{$1}}").to_string()
 }
 
@@ -463,6 +463,15 @@ app.MapDelete("/api/users/{id}", (int id) => Results.Ok());
             "/api/{{orgId}}/users/{{userId}}"
         );
         assert_eq!(convert_route_params("/api/health"), "/api/health");
+        // Type-constrained parameters
+        assert_eq!(
+            convert_route_params("/api/tours/{id:guid}"),
+            "/api/tours/{{id}}"
+        );
+        assert_eq!(
+            convert_route_params("/api/users/{id:int}/posts/{postId:guid}"),
+            "/api/users/{{id}}/posts/{{postId}}"
+        );
     }
 
     #[test]
