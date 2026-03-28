@@ -929,8 +929,8 @@ function App() {
                           className="url-variable"
                           data-tooltip={
                             resolved !== undefined
-                              ? `${varName} = ${resolved}`
-                              : `${varName} (not set)`
+                              ? resolved
+                              : "(not set)"
                           }
                         >
                           {part}
