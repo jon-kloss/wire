@@ -103,9 +103,16 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [responseTab, setResponseTab] = useState<"body" | "headers">("body");
 
-  // Collection state
-  const [collection, setCollection] = useState<IpcCollectionInfo | null>(null);
-  const [collectionPath, setCollectionPath] = useState<string | null>(null);
+  // Collection state (supports multiple collections)
+  const [collections, setCollections] = useState<
+    Array<{ info: IpcCollectionInfo; path: string }>
+  >([]);
+  const [activeCollectionPath, setActiveCollectionPath] = useState<
+    string | null
+  >(null);
+  const [expandedCollections, setExpandedCollections] = useState<Set<string>>(
+    new Set()
+  );
   const [selectedEnv, setSelectedEnv] = useState<string | null>(null);
   const [selectedRequestPath, setSelectedRequestPath] = useState<string | null>(
     null
@@ -116,6 +123,7 @@ function App() {
     "collections"
   );
   const [filterText, setFilterText] = useState("");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   // History state
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -170,14 +178,21 @@ function App() {
     if (!selected) return;
 
     try {
-      // Look for .wire/ subdirectory or use the selected directory directly
-      // open_collection expects the .wire dir itself
       const wireDir = selected as string;
       const info = await invoke<IpcCollectionInfo>("open_collection", {
         wireDir,
       });
-      setCollection(info);
-      setCollectionPath(wireDir);
+      setCollections((prev) => {
+        const existing = prev.findIndex((c) => c.path === wireDir);
+        if (existing >= 0) {
+          const updated = [...prev];
+          updated[existing] = { info, path: wireDir };
+          return updated;
+        }
+        return [...prev, { info, path: wireDir }];
+      });
+      setActiveCollectionPath(wireDir);
+      setExpandedCollections((prev) => new Set(prev).add(wireDir));
       setSelectedEnv(info.active_env ?? null);
     } catch (err) {
       setError(String(err));
@@ -200,8 +215,10 @@ function App() {
         name: name.trim(),
         parentDir: selected as string,
       });
-      setCollection(info);
-      setCollectionPath((selected as string) + "/.wire");
+      const newPath = (selected as string) + "/.wire";
+      setCollections((prev) => [...prev, { info, path: newPath }]);
+      setActiveCollectionPath(newPath);
+      setExpandedCollections((prev) => new Set(prev).add(newPath));
       setSelectedEnv(info.active_env ?? null);
     } catch (err) {
       setError(String(err));
@@ -220,7 +237,7 @@ function App() {
   }, [showPrompt]);
 
   const handleSaveRequest = useCallback(async () => {
-    if (!collectionPath) {
+    if (!activeCollectionPath) {
       setError("Open or create a collection first to save requests.");
       return;
     }
@@ -235,7 +252,7 @@ function App() {
     if (!name?.trim()) return;
 
     const fileName = name.trim().replace(/\s+/g, "-").toLowerCase() + ".wire.yaml";
-    const filePath = collectionPath + "/requests/" + fileName;
+    const filePath = activeCollectionPath + "/requests/" + fileName;
 
     try {
       const headers: Record<string, string> = {};
@@ -268,15 +285,19 @@ function App() {
 
       await invoke("save_request", { path: filePath, request });
 
-      // Refresh sidebar
+      // Refresh the specific collection
       const info = await invoke<IpcCollectionInfo>("open_collection", {
-        wireDir: collectionPath,
+        wireDir: activeCollectionPath,
       });
-      setCollection(info);
+      setCollections((prev) =>
+        prev.map((c) =>
+          c.path === activeCollectionPath ? { info, path: c.path } : c
+        )
+      );
     } catch (err) {
       setError(String(err));
     }
-  }, [method, url, headersText, bodyText, collectionPath, showPrompt]);
+  }, [method, url, headersText, bodyText, activeCollectionPath, showPrompt]);
 
   const handleSelectRequest = useCallback(
     async (entry: IpcRequestEntry) => {
@@ -364,21 +385,20 @@ function App() {
     }
   };
 
-  const tree =
-    collection && collectionPath
-      ? buildTree(collection.requests, collectionPath)
-      : null;
+  const activeCollection =
+    collections.find((c) => c.path === activeCollectionPath) ?? null;
 
-  const filteredTree = tree ? filterTree(tree, filterText) : null;
-
-  const sortedChildren = filteredTree
-    ? [...filteredTree.children.values()].sort((a, b) => {
-        const aIsFolder = !a.entry;
-        const bIsFolder = !b.entry;
-        if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      })
-    : [];
+  const toggleCollection = useCallback((path: string) => {
+    setExpandedCollections((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  }, []);
 
   return (
     <div className="app">
@@ -391,13 +411,19 @@ function App() {
         <div className="sidebar-tabs">
           <button
             className={`sidebar-tab ${sidebarTab === "collections" ? "active" : ""}`}
-            onClick={() => setSidebarTab("collections")}
+            onClick={() => {
+              setSidebarTab("collections");
+              setDropdownOpen(false);
+            }}
           >
             Collections
           </button>
           <button
             className={`sidebar-tab ${sidebarTab === "activity" ? "active" : ""}`}
-            onClick={() => setSidebarTab("activity")}
+            onClick={() => {
+              setSidebarTab("activity");
+              setDropdownOpen(false);
+            }}
           >
             Activity
           </button>
@@ -414,72 +440,147 @@ function App() {
                 onChange={(e) => setFilterText(e.target.value)}
               />
 
-              {collection && collection.environments.length > 0 && (
-                <select
-                  className="env-select"
-                  value={selectedEnv ?? ""}
-                  onChange={(e) =>
-                    setSelectedEnv(
-                      e.target.value === "" ? null : e.target.value
-                    )
-                  }
-                >
-                  <option value="">(no env)</option>
-                  {collection.environments.map((env) => (
-                    <option key={env} value={env}>
-                      {env}
-                    </option>
-                  ))}
-                </select>
-              )}
+              {activeCollection &&
+                activeCollection.info.environments.length > 0 && (
+                  <select
+                    className="env-select"
+                    value={selectedEnv ?? ""}
+                    onChange={(e) =>
+                      setSelectedEnv(
+                        e.target.value === "" ? null : e.target.value
+                      )
+                    }
+                  >
+                    <option value="">(no env)</option>
+                    {activeCollection.info.environments.map((env) => (
+                      <option key={env} value={env}>
+                        {env}
+                      </option>
+                    ))}
+                  </select>
+                )}
 
-              <div className="sidebar-action-buttons">
+              <div className="dropdown-wrapper">
                 <button
-                  className="sidebar-action-btn"
-                  onClick={handleNewCollection}
+                  className="sidebar-action-btn dropdown-trigger"
+                  onClick={() => setDropdownOpen(!dropdownOpen)}
                 >
-                  New Collection
+                  Collections &#x25BE;
                 </button>
-                <button
-                  className="sidebar-action-btn"
-                  onClick={handleOpenCollection}
-                >
-                  Import
-                </button>
-                <button
-                  className="sidebar-action-btn"
-                  onClick={handleImportFromUrl}
-                >
-                  Import from URL
-                </button>
+                {dropdownOpen && (
+                  <>
+                    <div
+                      className="dropdown-backdrop"
+                      onClick={() => setDropdownOpen(false)}
+                    />
+                    <div className="dropdown-menu">
+                      <button
+                        className="dropdown-item"
+                        onClick={() => {
+                          setDropdownOpen(false);
+                          handleNewCollection();
+                        }}
+                      >
+                        New Collection
+                      </button>
+                      <button
+                        className="dropdown-item"
+                        onClick={() => {
+                          setDropdownOpen(false);
+                          handleOpenCollection();
+                        }}
+                      >
+                        Import Collection
+                      </button>
+                      <button
+                        className="dropdown-item"
+                        onClick={() => {
+                          setDropdownOpen(false);
+                          handleImportFromUrl();
+                        }}
+                      >
+                        Import from URL
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
             <div className="sidebar-tree">
-              {!collection && (
+              {collections.length === 0 && (
                 <div className="empty-state">
                   <p className="empty-state-title">
                     No Collections Available
                   </p>
                   <p className="empty-state-hint">
-                    You can create collections here or import existing ones.
+                    Use the Collections menu above to create or import one.
                   </p>
                 </div>
               )}
-              {collection && sortedChildren.length === 0 && (
-                <p className="placeholder">
-                  {filterText ? "No matching requests" : "No requests found"}
-                </p>
-              )}
-              {sortedChildren.map((child) => (
-                <TreeItem
-                  key={child.entry?.path ?? child.name}
-                  node={child}
-                  depth={0}
-                  onSelect={handleSelectRequest}
-                  selectedPath={selectedRequestPath}
-                />
-              ))}
+              {collections.map(({ info, path }) => {
+                const isExpanded = expandedCollections.has(path);
+                const tree = buildTree(info.requests, path);
+                const filtered = filterTree(tree, filterText);
+                const sorted = [...filtered.children.values()].sort(
+                  (a, b) => {
+                    const aIsFolder = !a.entry;
+                    const bIsFolder = !b.entry;
+                    if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1;
+                    return a.name.localeCompare(b.name);
+                  }
+                );
+                const isActive = path === activeCollectionPath;
+                return (
+                  <div
+                    key={path}
+                    className={`collection-accordion ${isActive ? "active" : ""}`}
+                  >
+                    <div
+                      className="collection-header"
+                      onClick={() => toggleCollection(path)}
+                    >
+                      <span className="folder-icon">
+                        {isExpanded ? "\u25BE" : "\u25B8"}
+                      </span>
+                      <span className="collection-name">{info.name}</span>
+                      <span className="collection-count">
+                        {info.requests.length}
+                      </span>
+                    </div>
+                    {isExpanded && (
+                      <div className="collection-requests">
+                        {sorted.length === 0 && (
+                          <p className="placeholder collection-empty">
+                            {filterText
+                              ? "No matching requests"
+                              : "No requests yet"}
+                          </p>
+                        )}
+                        {sorted.map((child) => (
+                          <TreeItem
+                            key={child.entry?.path ?? child.name}
+                            node={child}
+                            depth={1}
+                            onSelect={(entry) => {
+                              setActiveCollectionPath(path);
+                              // Reset env when switching to a different collection
+                              if (path !== activeCollectionPath) {
+                                const col = collections.find(
+                                  (c) => c.path === path
+                                );
+                                setSelectedEnv(col?.info.active_env ?? null);
+                              }
+                              handleSelectRequest(entry);
+                            }}
+                            selectedPath={selectedRequestPath}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

@@ -16,7 +16,8 @@ Wire stores requests as human-readable YAML files that live in your repo alongsi
 - Send HTTP requests (GET, POST, PUT, PATCH, DELETE) from a three-panel GUI
 - Create new collections from the GUI (names them, sets up directory structure)
 - Save requests as `.wire.yaml` files — into a collection or standalone
-- Collection tree reflecting your `.wire/` directory structure
+- Multiple collections displayed as expandable accordions with color-coded HTTP method badges
+- Collections dropdown menu for creating, importing, and managing collections
 - Environment variables with `{{variable}}` interpolation and scoping (Global > Environment > Collection > Request)
 - Environment switching (dev/staging/prod)
 - Monaco editor for request body with JSON syntax highlighting
