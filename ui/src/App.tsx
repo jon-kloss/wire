@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { appDataDir } from "@tauri-apps/api/path";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type {
   IpcResponse,
@@ -188,20 +189,16 @@ function App() {
     const name = await showPrompt("Collection name:");
     if (!name?.trim()) return;
 
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: "Choose directory for new collection",
-    });
-    if (!selected) return;
-
     try {
+      const dataDir = await appDataDir();
+      const parentDir =
+        dataDir + "collections/" + name.trim().replace(/\s+/g, "-").toLowerCase();
       const info = await invoke<IpcCollectionInfo>("create_collection_cmd", {
         name: name.trim(),
-        parentDir: selected,
+        parentDir,
       });
       setCollection(info);
-      setCollectionPath((selected as string) + "/.wire");
+      setCollectionPath(parentDir + "/.wire");
       setSelectedEnv(info.active_env ?? null);
     } catch (err) {
       setError(String(err));
