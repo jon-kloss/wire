@@ -393,9 +393,9 @@ function App() {
         setExpandedCollections((prev) => new Set(prev).add(collectionPath));
         setSelectedEnv(info.active_env ?? null);
 
-        // Load the new request into builder
+        // Load the new request into builder with base URL template
         setMethod("GET");
-        setUrl("");
+        setUrl("{{schema}}://{{baseUrl}}/");
         setHeadersText("");
         setBodyText("");
         setSelectedRequestPath(filePath);
@@ -498,7 +498,16 @@ function App() {
           file: entry.path,
         });
         setMethod(req.method);
-        setUrl(req.url);
+
+        // Prepend base URL template if URL is a relative path
+        let loadedUrl = req.url;
+        if (
+          loadedUrl.startsWith("/") &&
+          !loadedUrl.startsWith("{{schema}}")
+        ) {
+          loadedUrl = "{{schema}}://{{baseUrl}}" + loadedUrl;
+        }
+        setUrl(loadedUrl);
 
         // Build headers text
         const headerLines = Object.entries(req.headers)
@@ -915,15 +924,6 @@ function App() {
             Save
           </button>
         </div>
-        {url.includes("{{") && Object.keys(envVars).length > 0 && (
-          <div className="resolved-url">
-            {Object.entries(envVars).reduce(
-              (resolved, [key, value]) =>
-                resolved.replaceAll(`{{${key}}}`, value),
-              url
-            )}
-          </div>
-        )}
         <div className="request-tabs">
           <div className="tabs">
             <button
