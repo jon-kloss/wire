@@ -95,7 +95,9 @@ function App() {
   const [url, setUrl] = useState("");
   const [headersText, setHeadersText] = useState("");
   const [bodyText, setBodyText] = useState("");
-  const [activeTab, setActiveTab] = useState<"headers" | "body">("headers");
+  const [activeTab, setActiveTab] = useState<
+    "query" | "headers" | "auth" | "body" | "tests" | "pre-run"
+  >("query");
 
   // Response state
   const [response, setResponse] = useState<IpcResponse | null>(null);
@@ -811,10 +813,22 @@ function App() {
         <div className="request-tabs">
           <div className="tabs">
             <button
+              className={`tab ${activeTab === "query" ? "active" : ""}`}
+              onClick={() => setActiveTab("query")}
+            >
+              Query
+            </button>
+            <button
               className={`tab ${activeTab === "headers" ? "active" : ""}`}
               onClick={() => setActiveTab("headers")}
             >
               Headers
+            </button>
+            <button
+              className={`tab ${activeTab === "auth" ? "active" : ""}`}
+              onClick={() => setActiveTab("auth")}
+            >
+              Auth
             </button>
             <button
               className={`tab ${activeTab === "body" ? "active" : ""}`}
@@ -822,8 +836,25 @@ function App() {
             >
               Body
             </button>
+            <button
+              className={`tab ${activeTab === "tests" ? "active" : ""}`}
+              onClick={() => setActiveTab("tests")}
+            >
+              Tests
+            </button>
+            <button
+              className={`tab ${activeTab === "pre-run" ? "active" : ""}`}
+              onClick={() => setActiveTab("pre-run")}
+            >
+              Pre Run
+            </button>
           </div>
           <div className="tab-content">
+            {activeTab === "query" && (
+              <div className="tab-placeholder">
+                <p className="placeholder">Query Parameters</p>
+              </div>
+            )}
             {activeTab === "headers" && (
               <textarea
                 className="editor-area"
@@ -833,6 +864,11 @@ function App() {
                 value={headersText}
                 onChange={(e) => setHeadersText(e.target.value)}
               />
+            )}
+            {activeTab === "auth" && (
+              <div className="tab-placeholder">
+                <p className="placeholder">Authentication</p>
+              </div>
             )}
             {activeTab === "body" && (
               <Suspense
@@ -863,6 +899,16 @@ function App() {
                   }}
                 />
               </Suspense>
+            )}
+            {activeTab === "tests" && (
+              <div className="tab-placeholder">
+                <p className="placeholder">Tests</p>
+              </div>
+            )}
+            {activeTab === "pre-run" && (
+              <div className="tab-placeholder">
+                <p className="placeholder">Pre-request Script</p>
+              </div>
             )}
           </div>
         </div>

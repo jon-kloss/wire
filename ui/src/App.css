@@ -394,6 +394,14 @@
   overflow: hidden;
 }
 
+.tab-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #666;
+}
+
 /* Shared panel styles */
 .panel-header {
   padding: 12px 16px;
