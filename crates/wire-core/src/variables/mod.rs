@@ -1,3 +1,7 @@
+mod engine;
+
+pub use engine::{interpolate, interpolate_map};
+
 use std::collections::HashMap;
 
 /// Variable scope for {{variable}} interpolation.

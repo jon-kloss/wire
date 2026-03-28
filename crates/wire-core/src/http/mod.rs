@@ -1,3 +1,7 @@
+mod executor;
+
+pub use executor::execute;
+
 use crate::error::WireError;
 use serde::Serialize;
 use std::collections::HashMap;
