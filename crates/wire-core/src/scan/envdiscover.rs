@@ -77,13 +77,54 @@ fn is_sensitive_key(key: &str) -> bool {
         || camel_lower.contains("connectionstring")
 }
 
+/// Find the directory containing the .csproj file (searches up to 3 levels deep).
+/// Falls back to project_dir if no .csproj found.
+fn find_aspnet_project_dir(project_dir: &Path) -> std::path::PathBuf {
+    fn search(dir: &Path, depth: u32) -> Option<std::path::PathBuf> {
+        if depth == 0 {
+            return None;
+        }
+        let entries = std::fs::read_dir(dir).ok()?;
+        let mut subdirs = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            if path.is_file() && name.ends_with(".csproj") {
+                return Some(dir.to_path_buf());
+            }
+            if path.is_dir()
+                && !matches!(
+                    name.as_str(),
+                    "node_modules" | ".git" | "bin" | "obj" | "target" | ".wire" | "dist" | "build"
+                )
+            {
+                subdirs.push(path);
+            }
+        }
+        for sub in subdirs {
+            if let Some(found) = search(&sub, depth - 1) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    search(project_dir, 4).unwrap_or_else(|| project_dir.to_path_buf())
+}
+
 /// Discover ASP.NET environments from appsettings.*.json and launchSettings.json.
 fn discover_aspnet_envs(project_dir: &Path) -> Vec<DiscoveredEnvironment> {
     let mut envs: Vec<DiscoveredEnvironment> = Vec::new();
     let mut base_settings: Option<serde_json::Value> = None;
 
+    // Find the actual ASP.NET project directory (where .csproj lives)
+    let aspnet_dir = find_aspnet_project_dir(project_dir);
+
     // 1. Parse base appsettings.json for defaults
-    let base_path = project_dir.join("appsettings.json");
+    let base_path = aspnet_dir.join("appsettings.json");
     if base_path.exists() {
         if let Ok(content) = std::fs::read_to_string(&base_path) {
             base_settings = serde_json::from_str(&content).ok();
@@ -91,7 +132,7 @@ fn discover_aspnet_envs(project_dir: &Path) -> Vec<DiscoveredEnvironment> {
     }
 
     // 2. Find appsettings.{Environment}.json files
-    if let Ok(entries) = std::fs::read_dir(project_dir) {
+    if let Ok(entries) = std::fs::read_dir(&aspnet_dir) {
         let mut env_files: Vec<_> = entries
             .filter_map(|e| e.ok())
             .filter(|e| {
@@ -153,7 +194,7 @@ fn discover_aspnet_envs(project_dir: &Path) -> Vec<DiscoveredEnvironment> {
     }
 
     // 3. Parse Properties/launchSettings.json for dev environment
-    let launch_path = project_dir.join("Properties").join("launchSettings.json");
+    let launch_path = aspnet_dir.join("Properties").join("launchSettings.json");
     if launch_path.exists() {
         if let Ok(content) = std::fs::read_to_string(&launch_path) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -548,6 +589,46 @@ mod tests {
         assert!(!is_sensitive_key("Hockey"));
         assert!(!is_sensitive_key("PublicEndpoint"));
         assert!(!is_sensitive_key("FeatureXEnabled"));
+    }
+
+    #[test]
+    fn aspnet_discovers_envs_in_nested_project() {
+        let dir = TempDir::new().unwrap();
+        let api_dir = dir.path().join("backend/src/MyApi");
+        fs::create_dir_all(&api_dir).unwrap();
+        fs::create_dir_all(api_dir.join("Properties")).unwrap();
+
+        fs::write(
+            api_dir.join("MyApi.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk.Web\"></Project>",
+        )
+        .unwrap();
+        fs::write(
+            api_dir.join("appsettings.Development.json"),
+            r#"{"BaseUrl": "https://localhost:5001/"}"#,
+        )
+        .unwrap();
+        fs::write(
+            api_dir.join("appsettings.Production.json"),
+            r#"{"BaseUrl": "https://api.example.com/"}"#,
+        )
+        .unwrap();
+        fs::write(
+            api_dir.join("Properties/launchSettings.json"),
+            r#"{"profiles": {"http": {"applicationUrl": "http://localhost:5004"}}}"#,
+        )
+        .unwrap();
+
+        // Pass the root dir — should find appsettings in nested backend/src/MyApi/
+        let envs = discover_aspnet_envs(dir.path());
+        assert_eq!(envs.len(), 2);
+
+        let dev = envs.iter().find(|e| e.filename == "dev").unwrap();
+        assert_eq!(dev.variables["schema"], "https");
+        assert_eq!(dev.variables["baseUrl"], "localhost:5001");
+
+        let prod = envs.iter().find(|e| e.filename == "prod").unwrap();
+        assert_eq!(prod.variables["baseUrl"], "api.example.com");
     }
 
     #[test]
