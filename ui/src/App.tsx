@@ -721,7 +721,7 @@ function App() {
                           handleImportFromCodebase();
                         }}
                       >
-                        Import from Codebase
+                        Generate from Codebase
                       </button>
                     </div>
                   </>
