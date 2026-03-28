@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, lazy, Suspense } from "react";
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
@@ -91,6 +91,8 @@ function TreeItem({
 }
 
 function App() {
+  const urlInputRef = useRef<HTMLInputElement>(null);
+
   // Request builder state
   const [method, setMethod] = useState("GET");
   const [url, setUrl] = useState("");
@@ -910,7 +912,11 @@ function App() {
             <option value="DELETE">DELETE</option>
           </select>
           <div className="url-input-wrapper">
-            <div className="url-highlight" aria-hidden="true">
+            <div
+              className="url-highlight"
+              aria-hidden="true"
+              onClick={() => urlInputRef.current?.focus()}
+            >
               {url
                 ? url.split(/(\{\{[^}]+\}\})/).map((part, i) => {
                     const varMatch = part.match(/^\{\{([^}]+)\}\}$/);
@@ -936,6 +942,7 @@ function App() {
                 : <span className="url-placeholder">Enter request URL...</span>}
             </div>
             <input
+              ref={urlInputRef}
               className="url-input"
               type="text"
               value={url}
