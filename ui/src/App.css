@@ -16,6 +16,93 @@
   overflow: hidden;
 }
 
+.sidebar .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.open-btn {
+  background: #3c3c3c;
+  color: #d4d4d4;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.open-btn:hover {
+  background: #4c4c4c;
+}
+
+/* Environment switcher */
+.env-switcher {
+  padding: 8px 16px;
+  border-bottom: 1px solid #3c3c3c;
+  flex-shrink: 0;
+}
+
+.env-select {
+  width: 100%;
+  background: #3c3c3c;
+  color: #d4d4d4;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Collection tree */
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  user-select: none;
+}
+
+.tree-item:hover {
+  background: #2a2d2e;
+}
+
+.tree-request.selected {
+  background: #094771;
+}
+
+.tree-folder {
+  color: #cccccc;
+}
+
+.folder-icon {
+  font-size: 10px;
+  width: 12px;
+  text-align: center;
+  color: #888;
+}
+
+.folder-name {
+  font-weight: 500;
+}
+
+.method-badge {
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 42px;
+  text-align: right;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+}
+
+.request-name {
+  color: #d4d4d4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Center Panel: Request Builder */
 .request-builder {
   display: flex;

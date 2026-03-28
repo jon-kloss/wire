@@ -79,6 +79,37 @@ pub async fn list_environments(state: State<'_, AppState>) -> Result<Vec<String>
 }
 
 #[tauri::command]
+pub async fn send_raw_request(
+    request: WireRequest,
+    env: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<IpcResponse, String> {
+    let mut scope = VariableScope::new();
+
+    let collection_guard = state.collection.lock().await;
+    if let Some(ref collection) = *collection_guard {
+        let active_env = env.or_else(|| collection.metadata.active_env.clone());
+        if let Some(env_key) = active_env {
+            if let Some(environment) = collection.environments.get(&env_key) {
+                scope.push_layer(environment.variables.clone());
+            }
+        }
+    }
+    drop(collection_guard);
+
+    let response = execute(&state.http_client, &request, &scope)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(IpcResponse::from(response))
+}
+
+#[tauri::command]
+pub async fn read_request(file: String) -> Result<WireRequest, String> {
+    load_request(Path::new(&file)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn save_request(path: String, request: WireRequest) -> Result<(), String> {
     let file_path = Path::new(&path);
 

@@ -8,6 +8,22 @@ export interface IpcResponse {
   size_bytes: number;
 }
 
+/** Request body */
+export interface WireBody {
+  type: "json" | "text" | "formdata";
+  content: unknown;
+}
+
+/** Full wire request (matches Rust WireRequest) */
+export interface WireRequest {
+  name: string;
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  params: Record<string, string>;
+  body: WireBody | null;
+}
+
 /** A single request entry in a collection */
 export interface IpcRequestEntry {
   path: string;
