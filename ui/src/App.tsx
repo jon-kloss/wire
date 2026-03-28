@@ -118,7 +118,9 @@ function App() {
   const [expandedCollections, setExpandedCollections] = useState<Set<string>>(
     new Set()
   );
-  const [selectedEnv, setSelectedEnv] = useState<string | null>(null);
+  // Per-collection environment state (keyed by collection path)
+  const [envSelectedMap, setEnvSelectedMap] = useState<Record<string, string | null>>({});
+  const [envVarsMap, setEnvVarsMap] = useState<Record<string, Record<string, string>>>({});
   const [selectedRequestPath, setSelectedRequestPath] = useState<string | null>(
     null
   );
@@ -133,8 +135,9 @@ function App() {
   const [filterText, setFilterText] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  // Environment variables state
-  const [envVars, setEnvVars] = useState<Record<string, string>>({});
+  // Derived env state for the active collection
+  const activeSelectedEnv = activeCollectionPath ? envSelectedMap[activeCollectionPath] ?? null : null;
+  const activeEnvVars = activeCollectionPath ? envVarsMap[activeCollectionPath] ?? {} : {};
 
   // History state
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -174,36 +177,28 @@ function App() {
     refreshHistory();
   }, [refreshHistory]);
 
-  // Load environment variables when active collection or selected env changes
-  useEffect(() => {
-    if (!activeCollectionPath || !selectedEnv) {
-      setEnvVars({});
-      return;
-    }
-    invoke<Record<string, string>>("get_environment", {
-      wireDir: activeCollectionPath,
-      envName: selectedEnv,
-    })
-      .then((vars) => setEnvVars(vars))
-      .catch(() => setEnvVars({}));
-  }, [activeCollectionPath, selectedEnv]);
+  // Load environment variables when active collection changes (sync from already-loaded map)
+  // Per-collection env loading happens inline in the env select onChange and on collection open
+
+  const envVarsMapRef = useRef(envVarsMap);
+  envVarsMapRef.current = envVarsMap;
 
   const handleSaveEnvVar = useCallback(
-    async (key: string, value: string) => {
-      if (!activeCollectionPath || !selectedEnv) return;
-      const updated = { ...envVars, [key]: value };
-      setEnvVars(updated);
+    async (collectionPath: string, envName: string, key: string, value: string) => {
+      const currentVars = envVarsMapRef.current[collectionPath] ?? {};
+      const updated = { ...currentVars, [key]: value };
+      setEnvVarsMap((prev) => ({ ...prev, [collectionPath]: updated }));
       try {
         await invoke("save_environment", {
-          wireDir: activeCollectionPath,
-          envName: selectedEnv,
+          wireDir: collectionPath,
+          envName,
           variables: updated,
         });
       } catch (err) {
         setError(String(err));
       }
     },
-    [activeCollectionPath, selectedEnv, envVars]
+    []
   );
 
   const handleNewRequest = useCallback(() => {
@@ -240,7 +235,13 @@ function App() {
       });
       setActiveCollectionPath(wireDir);
       setExpandedCollections((prev) => new Set(prev).add(wireDir));
-      setSelectedEnv(info.active_env ?? null);
+      const envName = info.active_env ?? null;
+      setEnvSelectedMap((prev) => ({ ...prev, [wireDir]: envName }));
+      if (envName) {
+        invoke<Record<string, string>>("get_environment", { wireDir, envName })
+          .then((vars) => setEnvVarsMap((prev) => ({ ...prev, [wireDir]: vars })))
+          .catch(() => {});
+      }
     } catch (err) {
       setError(String(err));
     }
@@ -266,7 +267,7 @@ function App() {
       setCollections((prev) => [...prev, { info, path: newPath }]);
       setActiveCollectionPath(newPath);
       setExpandedCollections((prev) => new Set(prev).add(newPath));
-      setSelectedEnv(info.active_env ?? null);
+      setEnvSelectedMap((prev) => ({ ...prev, [newPath]: info.active_env ?? null }));
     } catch (err) {
       setError(String(err));
     }
@@ -317,7 +318,13 @@ function App() {
         });
         setActiveCollectionPath(wireDir);
         setExpandedCollections((prev) => new Set(prev).add(wireDir));
-        setSelectedEnv(result.collection!.active_env ?? null);
+        const envName = result.collection!.active_env ?? null;
+        setEnvSelectedMap((prev) => ({ ...prev, [wireDir]: envName }));
+        if (envName) {
+          invoke<Record<string, string>>("get_environment", { wireDir, envName })
+            .then((vars) => setEnvVarsMap((prev) => ({ ...prev, [wireDir]: vars })))
+            .catch(() => {});
+        }
       }
     } catch (err) {
       setError(String(err));
@@ -337,6 +344,16 @@ function App() {
     setExpandedCollections((prev) => {
       const next = new Set(prev);
       next.delete(path);
+      return next;
+    });
+    setEnvSelectedMap((prev) => {
+      const next = { ...prev };
+      delete next[path];
+      return next;
+    });
+    setEnvVarsMap((prev) => {
+      const next = { ...prev };
+      delete next[path];
       return next;
     });
   }, []);
@@ -390,10 +407,10 @@ function App() {
           prev.map((c) => (c.path === collectionPath ? { info, path: c.path } : c))
         );
 
-        // Set as active and expand, reset env for new collection
+        // Set as active and expand
         setActiveCollectionPath(collectionPath);
         setExpandedCollections((prev) => new Set(prev).add(collectionPath));
-        setSelectedEnv(info.active_env ?? null);
+        setEnvSelectedMap((prev) => ({ ...prev, [collectionPath]: info.active_env ?? null }));
 
         // Load the new request into builder with base URL template
         setMethod("GET");
@@ -577,7 +594,7 @@ function App() {
 
       const result = await invoke<IpcResponse>("send_raw_request", {
         request,
-        env: selectedEnv,
+        env: activeSelectedEnv,
       });
 
       setResponse(result);
@@ -588,9 +605,6 @@ function App() {
       setLoading(false);
     }
   };
-
-  const activeCollection =
-    collections.find((c) => c.path === activeCollectionPath) ?? null;
 
   const toggleCollection = useCallback((path: string) => {
     setExpandedCollections((prev) => {
@@ -643,46 +657,6 @@ function App() {
                 value={filterText}
                 onChange={(e) => setFilterText(e.target.value)}
               />
-
-              {activeCollection &&
-                activeCollection.info.environments.length > 0 && (
-                  <select
-                    className="env-select"
-                    value={selectedEnv ?? ""}
-                    onChange={(e) =>
-                      setSelectedEnv(
-                        e.target.value === "" ? null : e.target.value
-                      )
-                    }
-                  >
-                    <option value="">(no env)</option>
-                    {activeCollection.info.environments.map((env) => (
-                      <option key={env} value={env}>
-                        {env}
-                      </option>
-                    ))}
-                  </select>
-                )}
-
-              {activeCollectionPath &&
-                selectedEnv &&
-                Object.keys(envVars).length > 0 && (
-                  <div className="env-vars-editor">
-                    {Object.entries(envVars).map(([key, value]) => (
-                      <div key={key} className="env-var-row">
-                        <label className="env-var-label">{key}</label>
-                        <input
-                          className="env-var-input"
-                          type="text"
-                          value={value}
-                          onChange={(e) =>
-                            handleSaveEnvVar(key, e.target.value)
-                          }
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
 
               <div className="dropdown-wrapper">
                 <button
@@ -827,20 +801,70 @@ function App() {
                             key={child.entry?.path ?? child.name}
                             node={child}
                             depth={1}
-                            onSelect={(entry) => {
-                              setActiveCollectionPath(path);
-                              // Reset env when switching to a different collection
+                            onSelect={async (entry) => {
+                              // Sync backend state when switching collections
                               if (path !== activeCollectionPath) {
-                                const col = collections.find(
-                                  (c) => c.path === path
-                                );
-                                setSelectedEnv(col?.info.active_env ?? null);
+                                try {
+                                  await invoke("open_collection", { wireDir: path });
+                                } catch { /* already open or will fail on send */ }
                               }
+                              setActiveCollectionPath(path);
                               handleSelectRequest(entry);
                             }}
                             selectedPath={selectedRequestPath}
                           />
                         ))}
+                        {info.environments.length > 0 && (
+                          <div className="collection-env-section">
+                            <div className="collection-env-header">
+                              <select
+                                className="env-select"
+                                value={envSelectedMap[path] ?? ""}
+                                onChange={(e) => {
+                                  const val = e.target.value === "" ? null : e.target.value;
+                                  setEnvSelectedMap((prev) => ({ ...prev, [path]: val }));
+                                  // Load the env vars for this collection
+                                  if (val) {
+                                    invoke<Record<string, string>>("get_environment", {
+                                      wireDir: path,
+                                      envName: val,
+                                    })
+                                      .then((vars) => setEnvVarsMap((prev) => ({ ...prev, [path]: vars })))
+                                      .catch(() => setEnvVarsMap((prev) => ({ ...prev, [path]: {} })));
+                                  } else {
+                                    setEnvVarsMap((prev) => ({ ...prev, [path]: {} }));
+                                  }
+                                }}
+                              >
+                                <option value="">(no env)</option>
+                                {info.environments.map((env) => (
+                                  <option key={env} value={env}>
+                                    {env}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            {envSelectedMap[path] &&
+                              envVarsMap[path] &&
+                              Object.keys(envVarsMap[path]).length > 0 && (
+                                <div className="env-vars-editor">
+                                  {Object.entries(envVarsMap[path]).map(([key, value]) => (
+                                    <div key={key} className="env-var-row">
+                                      <label className="env-var-label">{key}</label>
+                                      <input
+                                        className="env-var-input"
+                                        type="text"
+                                        value={value}
+                                        onChange={(e) =>
+                                          handleSaveEnvVar(path, envSelectedMap[path]!, key, e.target.value)
+                                        }
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -922,7 +946,7 @@ function App() {
                     const varMatch = part.match(/^\{\{([^}]+)\}\}$/);
                     if (varMatch) {
                       const varName = varMatch[1];
-                      const resolved = envVars[varName];
+                      const resolved = activeEnvVars[varName];
                       return (
                         <span
                           key={i}

@@ -394,6 +394,17 @@
   overflow: hidden;
 }
 
+/* Per-collection environment section */
+.collection-env-section {
+  border-top: 1px solid #3c3c3c;
+  padding: 6px 12px 8px;
+  margin-top: 4px;
+}
+
+.collection-env-header {
+  margin-bottom: 4px;
+}
+
 /* Environment variables editor */
 .env-vars-editor {
   display: flex;

@@ -1,5 +1,6 @@
 mod aspnet;
 mod detect;
+pub mod envdiscover;
 mod express;
 pub mod types;
 
@@ -41,27 +42,50 @@ pub fn scan_and_create_collection(
     std::fs::create_dir_all(wire_dir.join("envs"))?;
     std::fs::create_dir_all(&requests_dir)?;
 
-    // Write collection metadata with dev as default environment
+    // Discover environments from project config files
+    let discovered_envs = envdiscover::discover_environments(project_dir, &scan.framework);
+
+    // Determine active environment (first discovered, or "dev" fallback)
+    let active_env = discovered_envs
+        .first()
+        .map(|e| e.filename.clone())
+        .unwrap_or_else(|| "dev".to_string());
+
+    // Write collection metadata
     let metadata = WireCollection {
         name: project_name,
         version: 1,
-        active_env: Some("dev".to_string()),
+        active_env: Some(active_env),
     };
     let metadata_yaml = serde_yaml::to_string(&metadata)?;
     std::fs::write(wire_dir.join("wire.yaml"), metadata_yaml)?;
 
-    // Create starter dev.yaml environment with base URL variables
-    let dev_env = Environment {
-        name: "Development".to_string(),
-        variables: {
-            let mut vars = std::collections::HashMap::new();
-            vars.insert("schema".to_string(), "http".to_string());
-            vars.insert("baseUrl".to_string(), "localhost:3000".to_string());
-            vars
-        },
-    };
-    let dev_yaml = serde_yaml::to_string(&dev_env)?;
-    std::fs::write(wire_dir.join("envs/dev.yaml"), dev_yaml)?;
+    // Write discovered environments, or fall back to default dev.yaml
+    if discovered_envs.is_empty() {
+        let dev_env = Environment {
+            name: "Development".to_string(),
+            variables: {
+                let mut vars = std::collections::HashMap::new();
+                vars.insert("schema".to_string(), "http".to_string());
+                vars.insert("baseUrl".to_string(), "localhost:3000".to_string());
+                vars
+            },
+        };
+        let dev_yaml = serde_yaml::to_string(&dev_env)?;
+        std::fs::write(wire_dir.join("envs/dev.yaml"), dev_yaml)?;
+    } else {
+        for env in &discovered_envs {
+            let wire_env = Environment {
+                name: env.name.clone(),
+                variables: env.variables.clone(),
+            };
+            let yaml = serde_yaml::to_string(&wire_env)?;
+            std::fs::write(
+                wire_dir.join("envs").join(format!("{}.yaml", env.filename)),
+                yaml,
+            )?;
+        }
+    }
 
     // Write each endpoint as a .wire.yaml request file
     for endpoint in &scan.endpoints {
@@ -365,6 +389,133 @@ public class ItemsController : ControllerBase
         assert_eq!(slugify("GetUsers"), "getusers");
         assert_eq!(slugify("GetUsersById"), "getusersbyid");
         assert_eq!(slugify("POST /api/users"), "post--api-users");
+    }
+
+    #[test]
+    fn scan_and_create_collection_discovers_aspnet_envs() {
+        let project_dir = TempDir::new().unwrap();
+        let output_dir = TempDir::new().unwrap();
+
+        // ASP.NET project with appsettings + controller
+        fs::write(
+            project_dir.path().join("MyApi.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk.Web\"></Project>",
+        )
+        .unwrap();
+        fs::create_dir_all(project_dir.path().join("Controllers")).unwrap();
+        fs::write(
+            project_dir.path().join("Controllers/UsersController.cs"),
+            r#"
+[ApiController]
+[Route("api/[controller]")]
+public class UsersController : ControllerBase
+{
+    [HttpGet]
+    public IActionResult GetAll() { return Ok(); }
+}
+"#,
+        )
+        .unwrap();
+
+        // Create appsettings for multiple environments
+        fs::write(
+            project_dir.path().join("appsettings.Development.json"),
+            r#"{"Kestrel": {"Endpoints": {"Http": {"Url": "http://localhost:5001"}}}}"#,
+        )
+        .unwrap();
+        fs::write(
+            project_dir.path().join("appsettings.Production.json"),
+            r#"{"Kestrel": {"Endpoints": {"Https": {"Url": "https://api.myapp.com"}}}}"#,
+        )
+        .unwrap();
+
+        let (_scan, collection) =
+            scan_and_create_collection(project_dir.path(), output_dir.path()).unwrap();
+        let collection = collection.expect("should have collection");
+
+        // Should have 2 environments discovered
+        assert_eq!(collection.environments.len(), 2);
+        assert!(collection.environments.contains_key("dev"));
+        assert!(collection.environments.contains_key("prod"));
+
+        let dev = &collection.environments["dev"];
+        assert_eq!(dev.variables["baseUrl"], "localhost:5001");
+
+        let prod = &collection.environments["prod"];
+        assert_eq!(prod.variables["schema"], "https");
+        assert_eq!(prod.variables["baseUrl"], "api.myapp.com");
+
+        // active_env should be first discovered (dev)
+        assert_eq!(collection.metadata.active_env, Some("dev".to_string()));
+    }
+
+    #[test]
+    fn scan_and_create_collection_discovers_express_envs() {
+        let project_dir = TempDir::new().unwrap();
+        let output_dir = TempDir::new().unwrap();
+
+        fs::write(
+            project_dir.path().join("package.json"),
+            r#"{"dependencies": {"express": "^4.18.0"}}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(project_dir.path().join("routes")).unwrap();
+        fs::write(
+            project_dir.path().join("routes/api.js"),
+            "const router = require('express').Router();\nrouter.get('/api/health', (req, res) => res.json({ok: true}));\nmodule.exports = router;\n",
+        )
+        .unwrap();
+
+        // Create .env files
+        fs::write(project_dir.path().join(".env"), "PORT=3000\n").unwrap();
+        fs::write(
+            project_dir.path().join(".env.production"),
+            "API_BASE_URL=https://api.prod.example.com\n",
+        )
+        .unwrap();
+
+        let (_scan, collection) =
+            scan_and_create_collection(project_dir.path(), output_dir.path()).unwrap();
+        let collection = collection.expect("should have collection");
+
+        assert!(collection.environments.contains_key("dev"));
+        assert!(collection.environments.contains_key("prod"));
+
+        let dev = &collection.environments["dev"];
+        assert_eq!(dev.variables["baseUrl"], "localhost:3000");
+
+        let prod = &collection.environments["prod"];
+        assert_eq!(prod.variables["baseUrl"], "api.prod.example.com");
+    }
+
+    #[test]
+    fn scan_and_create_collection_falls_back_to_default_dev() {
+        let project_dir = TempDir::new().unwrap();
+        let output_dir = TempDir::new().unwrap();
+
+        // Express project with NO .env files
+        fs::write(
+            project_dir.path().join("package.json"),
+            r#"{"dependencies": {"express": "^4.18.0"}}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(project_dir.path().join("routes")).unwrap();
+        fs::write(
+            project_dir.path().join("routes/api.js"),
+            "const router = require('express').Router();\nrouter.get('/status', (req, res) => res.json({}));\nmodule.exports = router;\n",
+        )
+        .unwrap();
+
+        let (_scan, collection) =
+            scan_and_create_collection(project_dir.path(), output_dir.path()).unwrap();
+        let collection = collection.expect("should have collection");
+
+        // Should fall back to default dev.yaml
+        assert_eq!(collection.environments.len(), 1);
+        assert!(collection.environments.contains_key("dev"));
+        let dev = &collection.environments["dev"];
+        assert_eq!(dev.variables["schema"], "http");
+        assert_eq!(dev.variables["baseUrl"], "localhost:3000");
     }
 
     #[test]
