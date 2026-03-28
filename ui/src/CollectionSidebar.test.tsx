@@ -79,14 +79,21 @@ function TreeItem({
 
 // Test harness mirroring the collection accordion from App.tsx
 function CollectionAccordionTest({
-  collections,
+  collections: initialCollections,
   onSelect,
+  onDelete,
+  onRename,
+  onAddRequest,
   filterText = "",
 }: {
   collections: Array<{ info: IpcCollectionInfo; path: string }>;
   onSelect: (path: string, entry: IpcRequestEntry) => void;
+  onDelete?: (path: string) => void;
+  onRename?: (path: string, currentName: string) => void;
+  onAddRequest?: (path: string) => void;
   filterText?: string;
 }) {
+  const [collections, setCollections] = useState(initialCollections);
   const [expandedCollections, setExpandedCollections] = useState<Set<string>>(
     new Set()
   );
@@ -98,6 +105,11 @@ function CollectionAccordionTest({
       else next.add(path);
       return next;
     });
+  };
+
+  const handleDelete = (path: string) => {
+    setCollections((prev) => prev.filter((c) => c.path !== path));
+    onDelete?.(path);
   };
 
   return (
@@ -129,6 +141,41 @@ function CollectionAccordionTest({
               </span>
               <span className="collection-name">{info.name}</span>
               <span className="collection-count">{info.requests.length}</span>
+              <span className="collection-actions">
+                <button
+                  className="collection-action-btn"
+                  title="Add request"
+                  data-testid={`add-request-${info.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAddRequest?.(path);
+                  }}
+                >
+                  +
+                </button>
+                <button
+                  className="collection-action-btn"
+                  title="Rename collection"
+                  data-testid={`rename-${info.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRename?.(path, info.name);
+                  }}
+                >
+                  &#x270E;
+                </button>
+                <button
+                  className="collection-action-btn collection-action-delete"
+                  title="Remove collection"
+                  data-testid={`delete-${info.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDelete(path);
+                  }}
+                >
+                  &#x2715;
+                </button>
+              </span>
             </div>
             {isExpanded && (
               <div className="collection-requests">
@@ -482,5 +529,133 @@ describe("Collection Accordion", () => {
     );
     fireEvent.click(screen.getByTestId("collection-Empty Collection"));
     expect(screen.getByText("No requests yet")).toBeDefined();
+  });
+});
+
+describe("Collection Action Buttons", () => {
+  it("renders add, rename, and delete buttons on each collection header", () => {
+    const collections = [
+      makeCollection("API Collection", basePath1, apiRequests),
+    ];
+    render(
+      <CollectionAccordionTest collections={collections} onSelect={vi.fn()} />
+    );
+    expect(screen.getByTestId("add-request-API Collection")).toBeDefined();
+    expect(screen.getByTestId("rename-API Collection")).toBeDefined();
+    expect(screen.getByTestId("delete-API Collection")).toBeDefined();
+  });
+
+  it("delete button removes collection from sidebar without affecting others", () => {
+    const onDelete = vi.fn();
+    const collections = [
+      makeCollection("API Collection", basePath1, apiRequests),
+      makeCollection("Web Collection", basePath2, webRequests),
+    ];
+    render(
+      <CollectionAccordionTest
+        collections={collections}
+        onSelect={vi.fn()}
+        onDelete={onDelete}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("delete-API Collection"));
+
+    // API collection removed
+    expect(screen.queryByText("API Collection")).toBeNull();
+    // Web collection still present
+    expect(screen.getByText("Web Collection")).toBeDefined();
+    // Callback fired with correct path
+    expect(onDelete).toHaveBeenCalledWith(basePath1);
+  });
+
+  it("delete button does not toggle accordion (stopPropagation)", () => {
+    const collections = [
+      makeCollection("API Collection", basePath1, apiRequests),
+    ];
+    render(
+      <CollectionAccordionTest collections={collections} onSelect={vi.fn()} />
+    );
+
+    // Accordion starts collapsed — no requests visible
+    expect(screen.queryByText("Get Users")).toBeNull();
+
+    // Click delete button
+    fireEvent.click(screen.getByTestId("delete-API Collection"));
+
+    // Collection should be removed, NOT expanded
+    expect(screen.queryByText("API Collection")).toBeNull();
+    expect(screen.queryByText("Get Users")).toBeNull();
+  });
+
+  it("rename button calls onRename with path and current name without toggling accordion", () => {
+    const onRename = vi.fn();
+    const collections = [
+      makeCollection("API Collection", basePath1, apiRequests),
+    ];
+    render(
+      <CollectionAccordionTest
+        collections={collections}
+        onSelect={vi.fn()}
+        onRename={onRename}
+      />
+    );
+
+    // Accordion starts collapsed
+    expect(screen.queryByText("Get Users")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("rename-API Collection"));
+
+    expect(onRename).toHaveBeenCalledWith(basePath1, "API Collection");
+    // Accordion should NOT have expanded (stopPropagation)
+    expect(screen.queryByText("Get Users")).toBeNull();
+  });
+
+  it("add request button calls onAddRequest with collection path without toggling accordion", () => {
+    const onAddRequest = vi.fn();
+    const collections = [
+      makeCollection("API Collection", basePath1, apiRequests),
+    ];
+    render(
+      <CollectionAccordionTest
+        collections={collections}
+        onSelect={vi.fn()}
+        onAddRequest={onAddRequest}
+      />
+    );
+
+    // Accordion starts collapsed
+    expect(screen.queryByText("Get Users")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("add-request-API Collection"));
+
+    expect(onAddRequest).toHaveBeenCalledWith(basePath1);
+    // Accordion should NOT have expanded
+    expect(screen.queryByText("Get Users")).toBeNull();
+  });
+
+  it("action buttons have correct titles for accessibility", () => {
+    const collections = [
+      makeCollection("API Collection", basePath1, apiRequests),
+    ];
+    render(
+      <CollectionAccordionTest collections={collections} onSelect={vi.fn()} />
+    );
+    expect(screen.getByTitle("Add request")).toBeDefined();
+    expect(screen.getByTitle("Rename collection")).toBeDefined();
+    expect(screen.getByTitle("Remove collection")).toBeDefined();
+  });
+
+  it("deleting last collection shows empty state", () => {
+    const collections = [
+      makeCollection("API Collection", basePath1, apiRequests),
+    ];
+    render(
+      <CollectionAccordionTest collections={collections} onSelect={vi.fn()} />
+    );
+
+    fireEvent.click(screen.getByTestId("delete-API Collection"));
+
+    expect(screen.getByText("No Collections Available")).toBeDefined();
   });
 });

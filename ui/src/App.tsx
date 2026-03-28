@@ -236,6 +236,90 @@ function App() {
     setError(null);
   }, [showPrompt]);
 
+  const handleDeleteCollection = useCallback((path: string) => {
+    setCollections((prev) => prev.filter((c) => c.path !== path));
+    setActiveCollectionPath((prev) => (prev === path ? null : prev));
+    setSelectedEnv((prev) => {
+      // Clear env if the deleted collection was active
+      // We use a separate check via activeCollectionPath's functional form above
+      return prev;
+    });
+    setExpandedCollections((prev) => {
+      const next = new Set(prev);
+      next.delete(path);
+      return next;
+    });
+  }, []);
+
+  const handleRenameCollection = useCallback(
+    async (path: string, currentName: string) => {
+      const newName = await showPrompt("Rename collection:", currentName);
+      if (!newName?.trim() || newName.trim() === currentName) return;
+
+      try {
+        const info = await invoke<IpcCollectionInfo>("rename_collection_cmd", {
+          wireDir: path,
+          newName: newName.trim(),
+        });
+        setCollections((prev) =>
+          prev.map((c) => (c.path === path ? { info, path } : c))
+        );
+      } catch (err) {
+        setError(String(err));
+      }
+    },
+    [showPrompt]
+  );
+
+  const handleAddRequest = useCallback(
+    async (collectionPath: string) => {
+      const name = await showPrompt("New request name:", "");
+      if (!name?.trim()) return;
+
+      const fileName =
+        name.trim().replace(/\s+/g, "-").toLowerCase() + ".wire.yaml";
+      const filePath = collectionPath + "/requests/" + fileName;
+
+      try {
+        const request: WireRequest = {
+          name: name.trim(),
+          method: "GET",
+          url: "",
+          headers: {},
+          params: {},
+          body: null,
+        };
+
+        await invoke("save_request", { path: filePath, request });
+
+        // Refresh the collection
+        const info = await invoke<IpcCollectionInfo>("open_collection", {
+          wireDir: collectionPath,
+        });
+        setCollections((prev) =>
+          prev.map((c) => (c.path === collectionPath ? { info, path: c.path } : c))
+        );
+
+        // Set as active and expand, reset env for new collection
+        setActiveCollectionPath(collectionPath);
+        setExpandedCollections((prev) => new Set(prev).add(collectionPath));
+        setSelectedEnv(info.active_env ?? null);
+
+        // Load the new request into builder
+        setMethod("GET");
+        setUrl("");
+        setHeadersText("");
+        setBodyText("");
+        setSelectedRequestPath(filePath);
+        setResponse(null);
+        setError(null);
+      } catch (err) {
+        setError(String(err));
+      }
+    },
+    [showPrompt]
+  );
+
   const handleSaveRequest = useCallback(async () => {
     if (!activeCollectionPath) {
       setError("Open or create a collection first to save requests.");
@@ -547,6 +631,38 @@ function App() {
                       <span className="collection-count">
                         {info.requests.length}
                       </span>
+                      <div className="collection-actions">
+                        <button
+                          className="collection-action-btn"
+                          title="Add request"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAddRequest(path);
+                          }}
+                        >
+                          +
+                        </button>
+                        <button
+                          className="collection-action-btn"
+                          title="Rename collection"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRenameCollection(path, info.name);
+                          }}
+                        >
+                          &#x270E;
+                        </button>
+                        <button
+                          className="collection-action-btn collection-action-delete"
+                          title="Remove collection"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteCollection(path);
+                          }}
+                        >
+                          &#x2715;
+                        </button>
+                      </div>
                     </div>
                     {isExpanded && (
                       <div className="collection-requests">

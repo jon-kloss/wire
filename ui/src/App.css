@@ -209,6 +209,43 @@
   font-weight: 400;
 }
 
+/* Collection action buttons */
+.collection-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.collection-header:hover .collection-actions {
+  opacity: 1;
+}
+
+.collection-action-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 13px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.collection-action-btn:hover {
+  background: #094771;
+  color: #d4d4d4;
+}
+
+.collection-action-delete:hover {
+  background: rgba(244, 71, 71, 0.2);
+  color: #f44747;
+}
+
 .collection-requests {
   padding-bottom: 4px;
 }

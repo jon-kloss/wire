@@ -40,6 +40,25 @@ pub fn create_collection(parent_dir: &Path, name: &str) -> Result<LoadedCollecti
     load_collection(&wire_dir)
 }
 
+/// Rename a collection by updating its wire.yaml metadata.
+pub fn rename_collection(wire_dir: &Path, new_name: &str) -> Result<LoadedCollection, WireError> {
+    let metadata_path = wire_dir.join("wire.yaml");
+    if !metadata_path.exists() {
+        return Err(WireError::Other(format!(
+            "No wire.yaml found at {}",
+            wire_dir.display()
+        )));
+    }
+
+    let content = std::fs::read_to_string(&metadata_path)?;
+    let mut metadata: WireCollection = serde_yaml::from_str(&content)?;
+    metadata.name = new_name.to_string();
+    let yaml = serde_yaml::to_string(&metadata)?;
+    std::fs::write(&metadata_path, yaml)?;
+
+    load_collection(wire_dir)
+}
+
 /// Load a single .wire.yaml request file.
 pub fn load_request(path: &Path) -> Result<WireRequest, WireError> {
     let content = std::fs::read_to_string(path)?;
@@ -359,6 +378,50 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let collection = create_collection(dir.path(), "My API: v2 {test}").unwrap();
         assert_eq!(collection.metadata.name, "My API: v2 {test}");
+    }
+
+    #[test]
+    fn rename_collection_updates_metadata() {
+        let dir = TempDir::new().unwrap();
+        create_collection(dir.path(), "Original Name").unwrap();
+
+        let wire_dir = dir.path().join(".wire");
+        let renamed = rename_collection(&wire_dir, "New Name").unwrap();
+        assert_eq!(renamed.metadata.name, "New Name");
+
+        // Verify persisted on disk
+        let reloaded = load_collection(&wire_dir).unwrap();
+        assert_eq!(reloaded.metadata.name, "New Name");
+    }
+
+    #[test]
+    fn rename_collection_fails_without_wire_yaml() {
+        let dir = TempDir::new().unwrap();
+        let wire_dir = dir.path().join(".wire");
+        fs::create_dir_all(&wire_dir).unwrap();
+        // No wire.yaml file
+
+        let result = rename_collection(&wire_dir, "New Name");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rename_collection_preserves_other_metadata() {
+        let dir = TempDir::new().unwrap();
+        create_collection(dir.path(), "Original").unwrap();
+
+        // Add an env file
+        let wire_dir = dir.path().join(".wire");
+        fs::write(
+            wire_dir.join("envs/dev.yaml"),
+            "name: Dev\nvariables:\n  url: http://localhost\n",
+        )
+        .unwrap();
+
+        let renamed = rename_collection(&wire_dir, "Renamed").unwrap();
+        assert_eq!(renamed.metadata.name, "Renamed");
+        assert_eq!(renamed.metadata.version, 1);
+        assert_eq!(renamed.environments.len(), 1);
     }
 
     #[test]
