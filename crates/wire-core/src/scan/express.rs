@@ -93,7 +93,7 @@ fn parse_express_routes(content: &str) -> Vec<DiscoveredEndpoint> {
         // Try to extract body/query/header usage from the handler
         let handler_start = cap.get(0).unwrap().end();
         let handler_body = extract_handler_body(content, handler_start);
-        let (headers, query_params, body_type) = extract_req_usage(&handler_body);
+        let ((headers, query_params, body_type), body_fields) = extract_req_usage(&handler_body);
 
         endpoints.push(DiscoveredEndpoint {
             method: http_method,
@@ -102,6 +102,7 @@ fn parse_express_routes(content: &str) -> Vec<DiscoveredEndpoint> {
             headers,
             query_params,
             body_type,
+            body_fields,
         });
     }
 
@@ -137,6 +138,7 @@ fn parse_express_routes(content: &str) -> Vec<DiscoveredEndpoint> {
                 headers: Vec::new(),
                 query_params: Vec::new(),
                 body_type: None,
+                body_fields: Vec::new(),
             });
         }
     }
@@ -204,15 +206,42 @@ fn extract_handler_body(content: &str, start: usize) -> String {
 /// Extracted parameter metadata: (headers, query_params, body_type)
 type ParamMeta = (Vec<(String, String)>, Vec<(String, String)>, Option<String>);
 
+/// Extracted body field metadata
+type BodyFields = Vec<(String, String)>;
+
 /// Extract req.body, req.query, req.headers usage from handler body.
-fn extract_req_usage(handler: &str) -> ParamMeta {
+/// Returns (headers, query_params, body_type, body_fields)
+fn extract_req_usage(handler: &str) -> (ParamMeta, BodyFields) {
     let mut headers = Vec::new();
     let mut query_params = Vec::new();
     let mut body_type = None;
+    let mut body_fields: Vec<(String, String)> = Vec::new();
 
     // Detect req.body usage → indicates body expected
     if handler.contains("req.body") {
         body_type = Some("JSON".to_string());
+
+        // Extract destructured body fields: const { name, email } = req.body
+        let destructure_body_re =
+            Regex::new(r#"(?:const|let|var)\s+\{\s*([^}]+)\}\s*=\s*req\.body"#).unwrap();
+        let mut seen_body = std::collections::HashSet::new();
+        for cap in destructure_body_re.captures_iter(handler) {
+            for field in cap[1].split(',') {
+                let field = field.trim().to_string();
+                if !field.is_empty() && seen_body.insert(field.clone()) {
+                    body_fields.push((field, String::new()));
+                }
+            }
+        }
+
+        // Also extract req.body.fieldName direct access
+        let body_dot_re = Regex::new(r#"req\.body\.(\w+)"#).unwrap();
+        for cap in body_dot_re.captures_iter(handler) {
+            let field = cap[1].to_string();
+            if seen_body.insert(field.clone()) {
+                body_fields.push((field, String::new()));
+            }
+        }
     }
 
     // Extract req.query.paramName
@@ -254,7 +283,7 @@ fn extract_req_usage(handler: &str) -> ParamMeta {
         }
     }
 
-    (headers, query_params, body_type)
+    ((headers, query_params, body_type), body_fields)
 }
 
 #[cfg(test)]
@@ -562,5 +591,51 @@ router.post("/users/:id", (req, res) => { res.json(req.body); });
         assert_eq!(endpoints.len(), 2);
         assert_eq!(endpoints[0].route, "/users");
         assert_eq!(endpoints[1].route, "/users/{{id}}");
+    }
+
+    #[test]
+    fn extracts_destructured_body_fields() {
+        let code = r#"
+router.post('/users', (req, res) => {
+    const { name, email, age } = req.body;
+    res.json({ name, email, age });
+});
+"#;
+        let endpoints = parse_express_routes(code);
+        assert_eq!(endpoints.len(), 1);
+        assert_eq!(endpoints[0].body_type, Some("JSON".to_string()));
+        assert_eq!(endpoints[0].body_fields.len(), 3);
+        assert_eq!(endpoints[0].body_fields[0].0, "name");
+        assert_eq!(endpoints[0].body_fields[1].0, "email");
+        assert_eq!(endpoints[0].body_fields[2].0, "age");
+    }
+
+    #[test]
+    fn extracts_dot_access_body_fields() {
+        let code = r#"
+router.post('/items', (req, res) => {
+    const title = req.body.title;
+    const price = req.body.price;
+    res.json({ title, price });
+});
+"#;
+        let endpoints = parse_express_routes(code);
+        assert_eq!(endpoints.len(), 1);
+        assert_eq!(endpoints[0].body_fields.len(), 2);
+        assert_eq!(endpoints[0].body_fields[0].0, "title");
+        assert_eq!(endpoints[0].body_fields[1].0, "price");
+    }
+
+    #[test]
+    fn no_body_fields_when_no_req_body() {
+        let code = r#"
+router.get('/items', (req, res) => {
+    res.json([]);
+});
+"#;
+        let endpoints = parse_express_routes(code);
+        assert_eq!(endpoints.len(), 1);
+        assert!(endpoints[0].body_fields.is_empty());
+        assert!(endpoints[0].body_type.is_none());
     }
 }

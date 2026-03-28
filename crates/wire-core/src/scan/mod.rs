@@ -5,7 +5,7 @@ mod express;
 pub mod types;
 
 use crate::collection::{
-    load_collection, Environment, LoadedCollection, WireCollection, WireRequest,
+    load_collection, Body, BodyType, Environment, LoadedCollection, WireCollection, WireRequest,
 };
 use crate::error::WireError;
 use std::path::Path;
@@ -118,13 +118,49 @@ fn endpoint_to_request(endpoint: &DiscoveredEndpoint) -> WireRequest {
     // Prefix route with base URL template
     let url = format!("{{{{schema}}}}://{{{{baseUrl}}}}{}", endpoint.route);
 
+    // Build body from discovered fields
+    let body = if !endpoint.body_fields.is_empty() {
+        let mut map = serde_json::Map::new();
+        for (field_name, type_hint) in &endpoint.body_fields {
+            let camel = to_camel_case(field_name);
+            map.insert(camel, csharp_type_default(type_hint));
+        }
+        Some(Body {
+            body_type: BodyType::Json,
+            content: serde_json::Value::Object(map),
+        })
+    } else {
+        None
+    };
+
     WireRequest {
         name: endpoint.name.clone(),
         method: endpoint.method.clone(),
         url,
         headers,
         params,
-        body: None,
+        body,
+    }
+}
+
+/// Convert a PascalCase property name to camelCase for JSON.
+fn to_camel_case(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_lowercase().to_string() + chars.as_str(),
+    }
+}
+
+/// Map a C# type name to a sensible JSON default value.
+fn csharp_type_default(type_hint: &str) -> serde_json::Value {
+    let normalized = type_hint.trim_end_matches('?').to_lowercase();
+    match normalized.as_str() {
+        "int" | "long" | "short" | "byte" | "float" | "double" | "decimal" => {
+            serde_json::Value::Number(serde_json::Number::from(0))
+        }
+        "bool" | "boolean" => serde_json::Value::Bool(false),
+        _ => serde_json::Value::String(String::new()),
     }
 }
 
@@ -527,6 +563,10 @@ public class UsersController : ControllerBase
             headers: vec![("Content-Type".to_string(), String::new())],
             query_params: vec![("page".to_string(), String::new())],
             body_type: Some("CreateUserDto".to_string()),
+            body_fields: vec![
+                ("Name".to_string(), "string".to_string()),
+                ("Age".to_string(), "int".to_string()),
+            ],
         };
         let req = endpoint_to_request(&ep);
         assert_eq!(req.method, "POST");
@@ -534,5 +574,34 @@ public class UsersController : ControllerBase
         assert_eq!(req.name, "CreateUser");
         assert_eq!(req.headers.get("Content-Type").unwrap(), "");
         assert_eq!(req.params.get("page").unwrap(), "");
+
+        // Body should be populated from body_fields
+        let body = req.body.unwrap();
+        assert_eq!(body.body_type, BodyType::Json);
+        let content = body.content.as_object().unwrap();
+        assert_eq!(
+            content.get("name").unwrap(),
+            &serde_json::Value::String(String::new())
+        );
+        assert_eq!(content.get("age").unwrap(), &serde_json::json!(0));
+    }
+
+    #[test]
+    fn to_camel_case_converts_pascal() {
+        assert_eq!(to_camel_case("Name"), "name");
+        assert_eq!(to_camel_case("BreweryId"), "breweryId");
+        assert_eq!(to_camel_case("id"), "id");
+        assert_eq!(to_camel_case(""), "");
+    }
+
+    #[test]
+    fn csharp_type_default_maps_types() {
+        assert_eq!(csharp_type_default("string"), serde_json::json!(""));
+        assert_eq!(csharp_type_default("int"), serde_json::json!(0));
+        assert_eq!(csharp_type_default("double"), serde_json::json!(0));
+        assert_eq!(csharp_type_default("bool"), serde_json::json!(false));
+        assert_eq!(csharp_type_default("Guid"), serde_json::json!(""));
+        assert_eq!(csharp_type_default("string?"), serde_json::json!(""));
+        assert_eq!(csharp_type_default("int?"), serde_json::json!(0));
     }
 }

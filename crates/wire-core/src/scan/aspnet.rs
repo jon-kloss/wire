@@ -25,7 +25,72 @@ pub fn scan_aspnet(project_dir: &Path) -> (Vec<DiscoveredEndpoint>, usize) {
         endpoints.extend(minimal_endpoints);
     }
 
+    // Second pass: resolve body fields from DTO class definitions
+    // Collect all source content for class lookup
+    let all_sources: Vec<String> = cs_files
+        .iter()
+        .filter_map(|p| std::fs::read_to_string(p).ok())
+        .collect();
+    let combined_source = all_sources.join("\n");
+
+    for endpoint in &mut endpoints {
+        if let Some(ref type_name) = endpoint.body_type {
+            endpoint.body_fields = find_class_properties(&combined_source, type_name);
+        }
+    }
+
     (endpoints, files_scanned)
+}
+
+/// Find public properties of a C# class by name in source code.
+/// Extracts auto-properties like: public string Name { get; set; }
+fn find_class_properties(source: &str, class_name: &str) -> Vec<(String, String)> {
+    // Find the class declaration
+    let class_pattern = format!(
+        r"(?s)(?:public\s+)?class\s+{}\b[^{{]*\{{",
+        regex::escape(class_name)
+    );
+    let class_re = match Regex::new(&class_pattern) {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+
+    let class_match = match class_re.find(source) {
+        Some(m) => m,
+        None => return Vec::new(),
+    };
+
+    // Extract the class body using balanced braces
+    let start = class_match.end(); // position after the opening {
+    let bytes = source.as_bytes();
+    let mut depth = 1;
+    let mut pos = start;
+    while pos < bytes.len() && depth > 0 {
+        match bytes[pos] {
+            b'{' => depth += 1,
+            b'}' => depth -= 1,
+            _ => {}
+        }
+        if depth > 0 {
+            pos += 1;
+        }
+    }
+    let class_body = &source[start..pos];
+
+    // Match public properties: public Type Name { get; set; }
+    // Handles: nullable types (string?), generic types (List<string>), required keyword
+    let prop_re =
+        Regex::new(r"(?m)public\s+(?:required\s+)?(\w+(?:\?|<[^>]+>)?)\s+(\w+)\s*\{\s*get;")
+            .unwrap();
+
+    let mut properties = Vec::new();
+    for cap in prop_re.captures_iter(class_body) {
+        let type_name = cap[1].to_string();
+        let prop_name = cap[2].to_string();
+        properties.push((prop_name, type_name));
+    }
+
+    properties
 }
 
 /// Collect all .cs files in the project, skipping irrelevant directories.
@@ -144,6 +209,7 @@ fn parse_controllers(content: &str) -> Vec<DiscoveredEndpoint> {
                 headers,
                 query_params,
                 body_type,
+                body_fields: Vec::new(), // populated later via resolve_body_fields
             });
         }
     }
@@ -179,6 +245,7 @@ fn parse_minimal_apis(content: &str) -> Vec<DiscoveredEndpoint> {
             headers,
             query_params,
             body_type,
+            body_fields: Vec::new(), // populated later via resolve_body_fields
         });
     }
 
@@ -604,5 +671,94 @@ app.MapGet("/health", () => Results.Ok("healthy"));
         assert_eq!(endpoints[0].method, "GET");
         assert_eq!(endpoints[0].route, "/health");
         assert_eq!(endpoints[0].name, "GetHealth");
+    }
+
+    #[test]
+    fn find_class_properties_extracts_auto_properties() {
+        let source = r#"
+public class CreateTourDto
+{
+    public string Name { get; set; }
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public Guid BreweryId { get; set; }
+    public int? Rating { get; set; }
+}
+"#;
+        let props = find_class_properties(source, "CreateTourDto");
+        assert_eq!(props.len(), 5);
+        assert_eq!(props[0], ("Name".to_string(), "string".to_string()));
+        assert_eq!(props[1], ("Latitude".to_string(), "double".to_string()));
+        assert_eq!(props[3], ("BreweryId".to_string(), "Guid".to_string()));
+        assert_eq!(props[4], ("Rating".to_string(), "int?".to_string()));
+    }
+
+    #[test]
+    fn find_class_properties_handles_required_keyword() {
+        let source = r#"
+public class UserDto
+{
+    public required string Email { get; set; }
+    public string? DisplayName { get; set; }
+}
+"#;
+        let props = find_class_properties(source, "UserDto");
+        assert_eq!(props.len(), 2);
+        assert_eq!(props[0], ("Email".to_string(), "string".to_string()));
+        assert_eq!(props[1], ("DisplayName".to_string(), "string?".to_string()));
+    }
+
+    #[test]
+    fn find_class_properties_not_found_returns_empty() {
+        let source = "public class Unrelated { public string Foo { get; set; } }";
+        let props = find_class_properties(source, "NonExistentDto");
+        assert!(props.is_empty());
+    }
+
+    #[test]
+    fn scan_aspnet_resolves_body_fields_from_dto() {
+        let dir = TempDir::new().unwrap();
+        let controllers_dir = dir.path().join("Controllers");
+        let models_dir = dir.path().join("Models");
+        fs::create_dir_all(&controllers_dir).unwrap();
+        fs::create_dir_all(&models_dir).unwrap();
+
+        fs::write(
+            controllers_dir.join("ToursController.cs"),
+            r#"
+[ApiController]
+[Route("api/[controller]")]
+public class ToursController : ControllerBase
+{
+    [HttpPost]
+    public IActionResult Create([FromBody] CreateTourDto dto)
+    {
+        return Ok();
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        fs::write(
+            models_dir.join("CreateTourDto.cs"),
+            r#"
+public class CreateTourDto
+{
+    public string Name { get; set; }
+    public double Latitude { get; set; }
+    public Guid BreweryId { get; set; }
+}
+"#,
+        )
+        .unwrap();
+
+        let (endpoints, _) = scan_aspnet(dir.path());
+        assert_eq!(endpoints.len(), 1);
+        assert_eq!(endpoints[0].body_type, Some("CreateTourDto".to_string()));
+        assert_eq!(endpoints[0].body_fields.len(), 3);
+        assert_eq!(endpoints[0].body_fields[0].0, "Name");
+        assert_eq!(endpoints[0].body_fields[1].0, "Latitude");
+        assert_eq!(endpoints[0].body_fields[2].0, "BreweryId");
     }
 }

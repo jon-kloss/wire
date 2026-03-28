@@ -13,6 +13,8 @@ pub struct DiscoveredEndpoint {
     pub query_params: Vec<(String, String)>,
     /// Body type name if detected (e.g., "CreateUserDto")
     pub body_type: Option<String>,
+    /// Discovered body field names and their type hints (e.g., [("name", "string"), ("age", "int")])
+    pub body_fields: Vec<(String, String)>,
 }
 
 /// Detected project framework.

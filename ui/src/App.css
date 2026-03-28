@@ -463,6 +463,62 @@
   border-color: #007acc;
 }
 
+/* Query params editor */
+.query-params-editor {
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.query-params-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: #d4d4d4;
+  margin: 0 0 16px 0;
+  border-bottom: 1px solid #3c3c3c;
+  padding-bottom: 8px;
+}
+
+.query-param-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.query-param-checkbox {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  accent-color: #007acc;
+  cursor: pointer;
+}
+
+.query-param-key,
+.query-param-value {
+  flex: 1;
+  background: transparent;
+  color: #d4d4d4;
+  border: none;
+  border-bottom: 1px solid #555;
+  padding: 6px 4px;
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  outline: none;
+}
+
+.query-param-key::placeholder,
+.query-param-value::placeholder {
+  color: #666;
+}
+
+.query-param-key:focus,
+.query-param-value:focus {
+  border-bottom-color: #007acc;
+}
+
 .tab-placeholder {
   display: flex;
   align-items: center;

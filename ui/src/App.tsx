@@ -98,6 +98,7 @@ function App() {
   const [url, setUrl] = useState("");
   const [headersText, setHeadersText] = useState("");
   const [bodyText, setBodyText] = useState("");
+  const [queryParams, setQueryParams] = useState<Array<{ key: string; value: string; enabled?: boolean }>>([]);
   const [activeTab, setActiveTab] = useState<
     "query" | "headers" | "auth" | "body" | "tests" | "pre-run"
   >("query");
@@ -207,6 +208,7 @@ function App() {
     setUrl("");
     setHeadersText("");
     setBodyText("");
+    setQueryParams([]);
     setSelectedRequestPath(null);
     setSelectedRequestName(null);
     setResponse(null);
@@ -482,12 +484,19 @@ function App() {
         }
       }
 
+      const params: Record<string, string> = {};
+      for (const p of queryParams) {
+        if (p.key.trim() && p.enabled !== false) {
+          params[p.key.trim()] = p.value;
+        }
+      }
+
       const request: WireRequest = {
         name: requestName,
         method,
         url,
         headers,
-        params: {},
+        params,
         body,
       };
 
@@ -509,7 +518,7 @@ function App() {
     } catch (err) {
       setError(String(err));
     }
-  }, [method, url, headersText, bodyText, activeCollectionPath, selectedRequestPath, selectedRequestName, showPrompt]);
+  }, [method, url, headersText, bodyText, queryParams, activeCollectionPath, selectedRequestPath, selectedRequestName, showPrompt]);
 
   const handleSelectRequest = useCallback(
     async (entry: IpcRequestEntry) => {
@@ -544,6 +553,15 @@ function App() {
           }
         } else {
           setBodyText("");
+        }
+
+        // Load query params
+        if (req.params && Object.keys(req.params).length > 0) {
+          setQueryParams(
+            Object.entries(req.params).map(([key, value]) => ({ key, value, enabled: true }))
+          );
+        } else {
+          setQueryParams([]);
         }
 
         setSelectedRequestPath(entry.path);
@@ -584,12 +602,19 @@ function App() {
         }
       }
 
+      const params: Record<string, string> = {};
+      for (const p of queryParams) {
+        if (p.key.trim() && p.enabled !== false) {
+          params[p.key.trim()] = p.value;
+        }
+      }
+
       const request: WireRequest = {
         name: "Quick Request",
         method,
         url,
         headers,
-        params: {},
+        params,
         body,
       };
 
@@ -1047,8 +1072,55 @@ function App() {
           </div>
           <div className="tab-content">
             {activeTab === "query" && (
-              <div className="tab-placeholder">
-                <p className="placeholder">Query Parameters</p>
+              <div className="query-params-editor">
+                <h3 className="query-params-title">Query Parameters</h3>
+                {(queryParams.length > 0
+                  ? queryParams
+                  : [{ key: "", value: "", enabled: true }]
+                ).map((param, i) => (
+                  <div key={i} className="query-param-row">
+                    <input
+                      type="checkbox"
+                      className="query-param-checkbox"
+                      checked={param.enabled !== false}
+                      onChange={(e) => {
+                        const updated = [...queryParams];
+                        if (i >= updated.length) {
+                          updated.push({ key: "", value: "", enabled: e.target.checked });
+                        } else {
+                          updated[i] = { ...updated[i], enabled: e.target.checked };
+                        }
+                        setQueryParams(updated);
+                      }}
+                    />
+                    <input
+                      className="query-param-key"
+                      type="text"
+                      placeholder="parameter"
+                      value={param.key}
+                      onChange={(e) => {
+                        const updated = queryParams.length > 0 ? [...queryParams] : [{ key: "", value: "", enabled: true }];
+                        updated[i] = { ...updated[i], key: e.target.value };
+                        // Auto-add new empty row when typing in the last row
+                        if (i === updated.length - 1 && e.target.value) {
+                          updated.push({ key: "", value: "", enabled: true });
+                        }
+                        setQueryParams(updated);
+                      }}
+                    />
+                    <input
+                      className="query-param-value"
+                      type="text"
+                      placeholder="value"
+                      value={param.value}
+                      onChange={(e) => {
+                        const updated = queryParams.length > 0 ? [...queryParams] : [{ key: "", value: "", enabled: true }];
+                        updated[i] = { ...updated[i], value: e.target.value };
+                        setQueryParams(updated);
+                      }}
+                    />
+                  </div>
+                ))}
               </div>
             )}
             {activeTab === "headers" && (
