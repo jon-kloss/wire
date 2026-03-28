@@ -12,6 +12,7 @@ import type {
 import type { TreeNode } from "./utils";
 import {
   buildTree,
+  filterTree,
   formatTimeAgo,
   METHOD_COLORS,
   statusColor,
@@ -110,9 +111,14 @@ function App() {
     null
   );
 
+  // Sidebar state
+  const [sidebarTab, setSidebarTab] = useState<"collections" | "activity">(
+    "collections"
+  );
+  const [filterText, setFilterText] = useState("");
+
   // History state
   const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [historyExpanded, setHistoryExpanded] = useState(true);
 
   // Prompt modal state (replaces window.prompt which doesn't work in Tauri v2)
   const [promptState, setPromptState] = useState<{
@@ -148,6 +154,16 @@ function App() {
   useEffect(() => {
     refreshHistory();
   }, [refreshHistory]);
+
+  const handleNewRequest = useCallback(() => {
+    setMethod("GET");
+    setUrl("");
+    setHeadersText("");
+    setBodyText("");
+    setSelectedRequestPath(null);
+    setResponse(null);
+    setError(null);
+  }, []);
 
   const handleOpenCollection = useCallback(async () => {
     const selected = await open({ directory: true, multiple: false });
@@ -187,11 +203,21 @@ function App() {
       setCollection(info);
       setCollectionPath((selected as string) + "/.wire");
       setSelectedEnv(info.active_env ?? null);
-      refreshHistory();
     } catch (err) {
       setError(String(err));
     }
-  }, [showPrompt, refreshHistory]);
+  }, [showPrompt]);
+
+  const handleImportFromUrl = useCallback(async () => {
+    const importUrl = await showPrompt("Import from URL:", "https://");
+    if (!importUrl?.trim()) return;
+
+    setUrl(importUrl.trim());
+    setMethod("GET");
+    setSelectedRequestPath(null);
+    setResponse(null);
+    setError(null);
+  }, [showPrompt]);
 
   const handleSaveRequest = useCallback(async () => {
     let defaultName = "request";
@@ -349,8 +375,10 @@ function App() {
       ? buildTree(collection.requests, collectionPath)
       : null;
 
-  const sortedChildren = tree
-    ? [...tree.children.values()].sort((a, b) => {
+  const filteredTree = tree ? filterTree(tree, filterText) : null;
+
+  const sortedChildren = filteredTree
+    ? [...filteredTree.children.values()].sort((a, b) => {
         const aIsFolder = !a.entry;
         const bIsFolder = !b.entry;
         if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1;
@@ -360,73 +388,113 @@ function App() {
 
   return (
     <div className="app">
-      {/* Left Panel: Collection Tree */}
+      {/* Left Panel: Sidebar */}
       <aside className="sidebar">
-        <div className="panel-header">
-          <h2>Collections</h2>
-          <div className="sidebar-actions">
-            <button className="open-btn" onClick={handleNewCollection}>
-              New
-            </button>
-            <button className="open-btn" onClick={handleOpenCollection}>
-              Open
-            </button>
-          </div>
+        <button className="new-request-btn" onClick={handleNewRequest}>
+          + New Request
+        </button>
+
+        <div className="sidebar-tabs">
+          <button
+            className={`sidebar-tab ${sidebarTab === "collections" ? "active" : ""}`}
+            onClick={() => setSidebarTab("collections")}
+          >
+            Collections
+          </button>
+          <button
+            className={`sidebar-tab ${sidebarTab === "activity" ? "active" : ""}`}
+            onClick={() => setSidebarTab("activity")}
+          >
+            Activity
+          </button>
         </div>
 
-        {collection && collection.environments.length > 0 && (
-          <div className="env-switcher">
-            <select
-              className="env-select"
-              value={selectedEnv ?? ""}
-              onChange={(e) =>
-                setSelectedEnv(e.target.value === "" ? null : e.target.value)
-              }
-            >
-              <option value="">(no env)</option>
-              {collection.environments.map((env) => (
-                <option key={env} value={env}>
-                  {env}
-                </option>
+        {sidebarTab === "collections" && (
+          <div className="sidebar-content">
+            <div className="sidebar-controls">
+              <input
+                className="filter-input"
+                type="text"
+                placeholder="Filter collections..."
+                value={filterText}
+                onChange={(e) => setFilterText(e.target.value)}
+              />
+
+              {collection && collection.environments.length > 0 && (
+                <select
+                  className="env-select"
+                  value={selectedEnv ?? ""}
+                  onChange={(e) =>
+                    setSelectedEnv(
+                      e.target.value === "" ? null : e.target.value
+                    )
+                  }
+                >
+                  <option value="">(no env)</option>
+                  {collection.environments.map((env) => (
+                    <option key={env} value={env}>
+                      {env}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              <div className="sidebar-action-buttons">
+                <button
+                  className="sidebar-action-btn"
+                  onClick={handleNewCollection}
+                >
+                  New Collection
+                </button>
+                <button
+                  className="sidebar-action-btn"
+                  onClick={handleOpenCollection}
+                >
+                  Import
+                </button>
+                <button
+                  className="sidebar-action-btn"
+                  onClick={handleImportFromUrl}
+                >
+                  Import from URL
+                </button>
+              </div>
+            </div>
+
+            <div className="sidebar-tree">
+              {!collection && (
+                <div className="empty-state">
+                  <p className="empty-state-title">
+                    No Collections Available
+                  </p>
+                  <p className="empty-state-hint">
+                    You can create collections here or import existing ones.
+                  </p>
+                </div>
+              )}
+              {collection && sortedChildren.length === 0 && (
+                <p className="placeholder">
+                  {filterText ? "No matching requests" : "No requests found"}
+                </p>
+              )}
+              {sortedChildren.map((child) => (
+                <TreeItem
+                  key={child.entry?.path ?? child.name}
+                  node={child}
+                  depth={0}
+                  onSelect={handleSelectRequest}
+                  selectedPath={selectedRequestPath}
+                />
               ))}
-            </select>
+            </div>
           </div>
         )}
 
-        <div className="panel-body">
-          {!collection && (
-            <p className="placeholder">No collections loaded</p>
-          )}
-          {collection && sortedChildren.length === 0 && (
-            <p className="placeholder">No requests found</p>
-          )}
-          {sortedChildren.map((child) => (
-            <TreeItem
-              key={child.entry?.path ?? child.name}
-              node={child}
-              depth={0}
-              onSelect={handleSelectRequest}
-              selectedPath={selectedRequestPath}
-            />
-          ))}
-        </div>
-
-        {/* History Section */}
-        <div className="history-section">
-          <div
-            className="history-header"
-            onClick={() => setHistoryExpanded(!historyExpanded)}
-          >
-            <span className="folder-icon">
-              {historyExpanded ? "\u25BE" : "\u25B8"}
-            </span>
-            <h2>History</h2>
-            <span className="history-count">{history.length}</span>
-          </div>
-          {historyExpanded && (
+        {sidebarTab === "activity" && (
+          <div className="sidebar-content">
             <div className="history-list">
               {history.length === 0 && (
-                <p className="placeholder">No history yet</p>
+                <p className="placeholder">No activity yet</p>
               )}
               {history.map((entry, i) => {
                 const color = METHOD_COLORS[entry.method] ?? "#d4d4d4";
@@ -464,8 +532,8 @@ function App() {
                 );
               })}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </aside>
 
       {/* Center Panel: Request Builder */}

@@ -43,6 +43,30 @@ export function buildTree(
   return root;
 }
 
+/** Filter tree to only include nodes matching the query (case-insensitive) */
+export function filterTree(tree: TreeNode, query: string): TreeNode {
+  if (!query.trim()) return tree;
+  const lower = query.toLowerCase();
+
+  function filterNode(node: TreeNode): TreeNode | null {
+    // Leaf node — check if name matches
+    if (node.entry) {
+      return node.name.toLowerCase().includes(lower) ? node : null;
+    }
+    // Folder — keep if any children match
+    const filtered = new Map<string, TreeNode>();
+    for (const [key, child] of node.children) {
+      const result = filterNode(child);
+      if (result) filtered.set(key, result);
+    }
+    if (filtered.size === 0) return null;
+    return { name: node.name, children: filtered };
+  }
+
+  const result = filterNode(tree);
+  return result ?? { name: tree.name, children: new Map() };
+}
+
 export function formatTimeAgo(timestamp: string): string {
   const now = Date.now();
   const then = new Date(timestamp).getTime();

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   buildTree,
+  filterTree,
   formatTimeAgo,
   METHOD_COLORS,
   statusColor,
@@ -94,6 +95,78 @@ describe("buildTree", () => {
     const tree = buildTree(requests, basePath);
     // Falls through without stripping prefix — uses full path segments
     expect(tree.children.size).toBeGreaterThan(0);
+  });
+});
+
+describe("filterTree", () => {
+  const basePath = "/home/user/project/.wire";
+
+  function makeTree(requests: IpcRequestEntry[]) {
+    return buildTree(requests, basePath);
+  }
+
+  const requests: IpcRequestEntry[] = [
+    { path: `${basePath}/requests/auth/login.wire.yaml`, name: "Login", method: "POST" },
+    { path: `${basePath}/requests/auth/signup.wire.yaml`, name: "Signup", method: "POST" },
+    { path: `${basePath}/requests/users/list.wire.yaml`, name: "List Users", method: "GET" },
+    { path: `${basePath}/requests/health.wire.yaml`, name: "Health Check", method: "GET" },
+  ];
+
+  it("returns full tree when filter is empty", () => {
+    const tree = makeTree(requests);
+    const filtered = filterTree(tree, "");
+    expect(filtered.children.size).toBe(tree.children.size);
+  });
+
+  it("filters leaf nodes by name (case-insensitive)", () => {
+    const tree = makeTree(requests);
+    // lowercase query matches capitalized name
+    const filtered = filterTree(tree, "login");
+    const auth = filtered.children.get("auth");
+    expect(auth).toBeDefined();
+    expect(auth!.children.size).toBe(1);
+    expect(auth!.children.get("login.wire.yaml")).toBeDefined();
+    expect(filtered.children.has("users")).toBe(false);
+    expect(filtered.children.has("health.wire.yaml")).toBe(false);
+
+    // uppercase query also matches
+    const filtered2 = filterTree(tree, "LOGIN");
+    expect(filtered2.children.get("auth")!.children.size).toBe(1);
+  });
+
+  it("keeps folders that have matching descendants", () => {
+    const tree = makeTree(requests);
+    const filtered = filterTree(tree, "list");
+    expect(filtered.children.has("users")).toBe(true);
+    expect(filtered.children.get("users")!.children.size).toBe(1);
+    expect(filtered.children.get("users")!.children.has("list.wire.yaml")).toBe(true);
+    // Non-matching folders excluded
+    expect(filtered.children.has("auth")).toBe(false);
+  });
+
+  it("returns empty tree when no matches", () => {
+    const tree = makeTree(requests);
+    const filtered = filterTree(tree, "nonexistent");
+    expect(filtered.children.size).toBe(0);
+  });
+
+  it("matches partial and infix text", () => {
+    const tree = makeTree(requests);
+    // prefix match
+    const filtered = filterTree(tree, "heal");
+    expect(filtered.children.has("health.wire.yaml")).toBe(true);
+    expect(filtered.children.size).toBe(1);
+
+    // infix match ("Check" inside "Health Check")
+    const filtered2 = filterTree(tree, "check");
+    expect(filtered2.children.has("health.wire.yaml")).toBe(true);
+    expect(filtered2.children.size).toBe(1);
+  });
+
+  it("returns full tree for whitespace-only query", () => {
+    const tree = makeTree(requests);
+    const filtered = filterTree(tree, "   ");
+    expect(filtered.children.size).toBe(tree.children.size);
   });
 });
 
