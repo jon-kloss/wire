@@ -495,7 +495,6 @@
   background: #3c3c3c;
   border: 1px solid #555;
   border-radius: 4px;
-  overflow: hidden;
 }
 
 .url-input-wrapper:focus-within {
@@ -543,19 +542,18 @@
 
 .url-variable:hover::after {
   content: attr(data-tooltip);
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
+  position: fixed;
   background: #1e1e1e;
   color: #d4d4d4;
   border: 1px solid #555;
   border-radius: 4px;
-  padding: 4px 8px;
+  padding: 6px 10px;
   font-size: 12px;
+  line-height: 1.4;
   white-space: nowrap;
-  z-index: 10;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  transform: translateY(-100%) translateY(-8px);
 }
 
 .url-placeholder {
