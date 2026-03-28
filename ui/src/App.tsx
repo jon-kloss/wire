@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { appDataDir } from "@tauri-apps/api/path";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import type {
   IpcResponse,
   IpcCollectionInfo,
@@ -189,16 +188,20 @@ function App() {
     const name = await showPrompt("Collection name:");
     if (!name?.trim()) return;
 
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Choose directory for new collection",
+    });
+    if (!selected) return;
+
     try {
-      const dataDir = await appDataDir();
-      const parentDir =
-        dataDir + "collections/" + name.trim().replace(/\s+/g, "-").toLowerCase();
       const info = await invoke<IpcCollectionInfo>("create_collection_cmd", {
         name: name.trim(),
-        parentDir,
+        parentDir: selected as string,
       });
       setCollection(info);
-      setCollectionPath(parentDir + "/.wire");
+      setCollectionPath((selected as string) + "/.wire");
       setSelectedEnv(info.active_env ?? null);
     } catch (err) {
       setError(String(err));
@@ -217,6 +220,11 @@ function App() {
   }, [showPrompt]);
 
   const handleSaveRequest = useCallback(async () => {
+    if (!collectionPath) {
+      setError("Open or create a collection first to save requests.");
+      return;
+    }
+
     let defaultName = "request";
     try {
       if (url) defaultName = new URL(url).pathname.split("/").pop() || "request";
@@ -226,17 +234,8 @@ function App() {
     const name = await showPrompt("Request name:", defaultName);
     if (!name?.trim()) return;
 
-    // Default to collection's requests dir if one is open
-    const defaultPath = collectionPath
-      ? collectionPath + "/requests/" + name.trim().replace(/\s+/g, "-").toLowerCase() + ".wire.yaml"
-      : undefined;
-
-    const filePath = await save({
-      title: "Save request as",
-      defaultPath,
-      filters: [{ name: "Wire Request", extensions: ["wire.yaml"] }],
-    });
-    if (!filePath) return;
+    const fileName = name.trim().replace(/\s+/g, "-").toLowerCase() + ".wire.yaml";
+    const filePath = collectionPath + "/requests/" + fileName;
 
     try {
       const headers: Record<string, string> = {};
@@ -269,13 +268,11 @@ function App() {
 
       await invoke("save_request", { path: filePath, request });
 
-      // Refresh sidebar if saved into current collection
-      if (collectionPath && filePath.startsWith(collectionPath)) {
-        const info = await invoke<IpcCollectionInfo>("open_collection", {
-          wireDir: collectionPath,
-        });
-        setCollection(info);
-      }
+      // Refresh sidebar
+      const info = await invoke<IpcCollectionInfo>("open_collection", {
+        wireDir: collectionPath,
+      });
+      setCollection(info);
     } catch (err) {
       setError(String(err));
     }
