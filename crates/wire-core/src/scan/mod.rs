@@ -3,7 +3,9 @@ mod detect;
 mod express;
 pub mod types;
 
-use crate::collection::{load_collection, LoadedCollection, WireCollection, WireRequest};
+use crate::collection::{
+    load_collection, Environment, LoadedCollection, WireCollection, WireRequest,
+};
 use crate::error::WireError;
 use std::path::Path;
 use types::{DiscoveredEndpoint, Framework, ScanResult};
@@ -34,14 +36,27 @@ pub fn scan_and_create_collection(
     std::fs::create_dir_all(wire_dir.join("envs"))?;
     std::fs::create_dir_all(wire_dir.join("requests"))?;
 
-    // Write collection metadata
+    // Write collection metadata with dev as default environment
     let metadata = WireCollection {
         name: project_name,
         version: 1,
-        active_env: None,
+        active_env: Some("dev".to_string()),
     };
     let metadata_yaml = serde_yaml::to_string(&metadata)?;
     std::fs::write(wire_dir.join("wire.yaml"), metadata_yaml)?;
+
+    // Create starter dev.yaml environment with base URL variables
+    let dev_env = Environment {
+        name: "Development".to_string(),
+        variables: {
+            let mut vars = std::collections::HashMap::new();
+            vars.insert("schema".to_string(), "http".to_string());
+            vars.insert("baseUrl".to_string(), "localhost:3000".to_string());
+            vars
+        },
+    };
+    let dev_yaml = serde_yaml::to_string(&dev_env)?;
+    std::fs::write(wire_dir.join("envs/dev.yaml"), dev_yaml)?;
 
     // Write each endpoint as a .wire.yaml request file
     for endpoint in &scan.endpoints {
@@ -71,10 +86,13 @@ fn endpoint_to_request(endpoint: &DiscoveredEndpoint) -> WireRequest {
         params.insert(name.clone(), String::new());
     }
 
+    // Prefix route with base URL template
+    let url = format!("{{{{schema}}}}://{{{{baseUrl}}}}{}", endpoint.route);
+
     WireRequest {
         name: endpoint.name.clone(),
         method: endpoint.method.clone(),
-        url: endpoint.route.clone(),
+        url,
         headers,
         params,
         body: None,
@@ -251,6 +269,26 @@ module.exports = router;
         // Verify .wire directory was created
         assert!(output_dir.path().join(".wire/wire.yaml").exists());
         assert!(output_dir.path().join(".wire/requests").is_dir());
+
+        // Verify dev.yaml environment was created
+        assert!(output_dir.path().join(".wire/envs/dev.yaml").exists());
+        assert_eq!(collection.environments.len(), 1);
+        assert!(collection.environments.contains_key("dev"));
+        let dev = &collection.environments["dev"];
+        assert_eq!(dev.variables["schema"], "http");
+        assert_eq!(dev.variables["baseUrl"], "localhost:3000");
+
+        // Verify URLs have base URL template prefix
+        let urls: Vec<&str> = collection
+            .requests
+            .iter()
+            .map(|(_, r)| r.url.as_str())
+            .collect();
+        assert!(urls.contains(&"{{schema}}://{{baseUrl}}/users"));
+        assert!(urls.contains(&"{{schema}}://{{baseUrl}}/users/{{id}}"));
+
+        // Verify active_env is set to dev
+        assert_eq!(collection.metadata.active_env, Some("dev".to_string()));
     }
 
     #[test]
@@ -290,14 +328,17 @@ public class ItemsController : ControllerBase
         let collection = collection.expect("should have created collection");
         assert_eq!(collection.requests.len(), 2);
 
-        // Verify route params converted
-        let routes: Vec<&str> = collection
+        // Verify URLs have base URL template prefix with route params
+        let urls: Vec<&str> = collection
             .requests
             .iter()
             .map(|(_, r)| r.url.as_str())
             .collect();
-        assert!(routes.contains(&"/api/items"));
-        assert!(routes.contains(&"/api/items/{{id}}"));
+        assert!(urls.contains(&"{{schema}}://{{baseUrl}}/api/items"));
+        assert!(urls.contains(&"{{schema}}://{{baseUrl}}/api/items/{{id}}"));
+
+        // Verify dev.yaml created
+        assert!(output_dir.path().join(".wire/envs/dev.yaml").exists());
     }
 
     #[test]
@@ -333,7 +374,7 @@ public class ItemsController : ControllerBase
         };
         let req = endpoint_to_request(&ep);
         assert_eq!(req.method, "POST");
-        assert_eq!(req.url, "/api/users");
+        assert_eq!(req.url, "{{schema}}://{{baseUrl}}/api/users");
         assert_eq!(req.name, "CreateUser");
         assert_eq!(req.headers.get("Content-Type").unwrap(), "");
         assert_eq!(req.params.get("page").unwrap(), "");

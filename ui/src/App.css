@@ -394,6 +394,45 @@
   overflow: hidden;
 }
 
+/* Environment variables editor */
+.env-vars-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+  border-top: 1px solid #3c3c3c;
+}
+
+.env-var-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.env-var-label {
+  font-size: 11px;
+  color: #9cdcfe;
+  min-width: 60px;
+  text-align: right;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+}
+
+.env-var-input {
+  flex: 1;
+  background: #3c3c3c;
+  color: #d4d4d4;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  outline: none;
+}
+
+.env-var-input:focus {
+  border-color: #007acc;
+}
+
 .tab-placeholder {
   display: flex;
   align-items: center;

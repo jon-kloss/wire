@@ -131,6 +131,9 @@ function App() {
   const [filterText, setFilterText] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
+  // Environment variables state
+  const [envVars, setEnvVars] = useState<Record<string, string>>({});
+
   // History state
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
@@ -168,6 +171,38 @@ function App() {
   useEffect(() => {
     refreshHistory();
   }, [refreshHistory]);
+
+  // Load environment variables when active collection or selected env changes
+  useEffect(() => {
+    if (!activeCollectionPath || !selectedEnv) {
+      setEnvVars({});
+      return;
+    }
+    invoke<Record<string, string>>("get_environment", {
+      wireDir: activeCollectionPath,
+      envName: selectedEnv,
+    })
+      .then((vars) => setEnvVars(vars))
+      .catch(() => setEnvVars({}));
+  }, [activeCollectionPath, selectedEnv]);
+
+  const handleSaveEnvVar = useCallback(
+    async (key: string, value: string) => {
+      if (!activeCollectionPath || !selectedEnv) return;
+      const updated = { ...envVars, [key]: value };
+      setEnvVars(updated);
+      try {
+        await invoke("save_environment", {
+          wireDir: activeCollectionPath,
+          envName: selectedEnv,
+          variables: updated,
+        });
+      } catch (err) {
+        setError(String(err));
+      }
+    },
+    [activeCollectionPath, selectedEnv, envVars]
+  );
 
   const handleNewRequest = useCallback(() => {
     setMethod("GET");
@@ -616,6 +651,26 @@ function App() {
                       </option>
                     ))}
                   </select>
+                )}
+
+              {activeCollectionPath &&
+                selectedEnv &&
+                Object.keys(envVars).length > 0 && (
+                  <div className="env-vars-editor">
+                    {Object.entries(envVars).map(([key, value]) => (
+                      <div key={key} className="env-var-row">
+                        <label className="env-var-label">{key}</label>
+                        <input
+                          className="env-var-input"
+                          type="text"
+                          value={value}
+                          onChange={(e) =>
+                            handleSaveEnvVar(key, e.target.value)
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
                 )}
 
               <div className="dropdown-wrapper">

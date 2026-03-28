@@ -3,7 +3,7 @@ use crate::types::{IpcCollectionInfo, IpcRequestEntry, IpcResponse, IpcScanResul
 use std::path::Path;
 use tauri::State;
 use wire_core::collection::{
-    create_collection, load_collection, load_request, rename_collection, WireRequest,
+    create_collection, load_collection, load_request, rename_collection, Environment, WireRequest,
 };
 use wire_core::history::{self, HistoryEntry};
 use wire_core::http::execute;
@@ -271,6 +271,54 @@ pub async fn scan_codebase(
         collection: collection_info,
         wire_dir,
     })
+}
+
+#[tauri::command]
+pub async fn get_environment(
+    wire_dir: String,
+    env_name: String,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let env_path = Path::new(&wire_dir)
+        .join("envs")
+        .join(format!("{env_name}.yaml"));
+    if !env_path.exists() {
+        return Err(format!(
+            "Environment file not found: {}",
+            env_path.display()
+        ));
+    }
+    let content = std::fs::read_to_string(&env_path).map_err(|e| e.to_string())?;
+    let env: Environment = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+    Ok(env.variables)
+}
+
+#[tauri::command]
+pub async fn save_environment(
+    wire_dir: String,
+    env_name: String,
+    variables: std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    let env_path = Path::new(&wire_dir)
+        .join("envs")
+        .join(format!("{env_name}.yaml"));
+
+    // Read existing env to preserve the name field, or create new
+    let name = if env_path.exists() {
+        let content = std::fs::read_to_string(&env_path).map_err(|e| e.to_string())?;
+        let existing: Environment = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+        existing.name
+    } else {
+        // Create envs directory if needed
+        if let Some(parent) = env_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        env_name.clone()
+    };
+
+    let env = Environment { name, variables };
+    let yaml = serde_yaml::to_string(&env).map_err(|e| e.to_string())?;
+    std::fs::write(&env_path, yaml).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
