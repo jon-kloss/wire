@@ -912,15 +912,27 @@ function App() {
           <div className="url-input-wrapper">
             <div className="url-highlight" aria-hidden="true">
               {url
-                ? url.split(/(\{\{[^}]+\}\})/).map((part, i) =>
-                    part.match(/^\{\{[^}]+\}\}$/) ? (
-                      <span key={i} className="url-variable">
-                        {part}
-                      </span>
-                    ) : (
-                      <span key={i}>{part}</span>
-                    )
-                  )
+                ? url.split(/(\{\{[^}]+\}\})/).map((part, i) => {
+                    const varMatch = part.match(/^\{\{([^}]+)\}\}$/);
+                    if (varMatch) {
+                      const varName = varMatch[1];
+                      const resolved = envVars[varName];
+                      return (
+                        <span
+                          key={i}
+                          className="url-variable"
+                          data-tooltip={
+                            resolved !== undefined
+                              ? `${varName} = ${resolved}`
+                              : `${varName} (not set)`
+                          }
+                        >
+                          {part}
+                        </span>
+                      );
+                    }
+                    return <span key={i}>{part}</span>;
+                  })
                 : <span className="url-placeholder">Enter request URL...</span>}
             </div>
             <input
