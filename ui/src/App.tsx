@@ -17,6 +17,7 @@ import {
   statusColor,
   formatBody,
 } from "./utils";
+import { PromptModal } from "./PromptModal";
 import "./App.css";
 
 const MonacoEditor = lazy(() => import("@monaco-editor/react"));
@@ -113,6 +114,25 @@ function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyExpanded, setHistoryExpanded] = useState(true);
 
+  // Prompt modal state (replaces window.prompt which doesn't work in Tauri v2)
+  const [promptState, setPromptState] = useState<{
+    title: string;
+    defaultValue: string;
+    resolve: (value: string | null) => void;
+  } | null>(null);
+
+  const showPrompt = useCallback(
+    (title: string, defaultValue = ""): Promise<string | null> => {
+      return new Promise((resolve) => {
+        setPromptState((prev) => {
+          prev?.resolve(null); // cancel any in-flight prompt
+          return { title, defaultValue, resolve };
+        });
+      });
+    },
+    []
+  );
+
   const refreshHistory = useCallback(async () => {
     try {
       const entries = await invoke<HistoryEntry[]>("list_history", {
@@ -149,7 +169,7 @@ function App() {
   }, []);
 
   const handleNewCollection = useCallback(async () => {
-    const name = window.prompt("Collection name:");
+    const name = await showPrompt("Collection name:");
     if (!name?.trim()) return;
 
     const selected = await open({
@@ -171,7 +191,7 @@ function App() {
     } catch (err) {
       setError(String(err));
     }
-  }, []);
+  }, [showPrompt, refreshHistory]);
 
   const handleSaveRequest = useCallback(async () => {
     let defaultName = "request";
@@ -180,7 +200,7 @@ function App() {
     } catch {
       // invalid URL — use default
     }
-    const name = window.prompt("Request name:", defaultName);
+    const name = await showPrompt("Request name:", defaultName);
     if (!name?.trim()) return;
 
     // Default to collection's requests dir if one is open
@@ -236,7 +256,7 @@ function App() {
     } catch (err) {
       setError(String(err));
     }
-  }, [method, url, headersText, bodyText, collectionPath]);
+  }, [method, url, headersText, bodyText, collectionPath, showPrompt]);
 
   const handleSelectRequest = useCallback(
     async (entry: IpcRequestEntry) => {
@@ -603,6 +623,21 @@ function App() {
           </div>
         )}
       </section>
+
+      {promptState && (
+        <PromptModal
+          title={promptState.title}
+          defaultValue={promptState.defaultValue}
+          onConfirm={(value) => {
+            promptState.resolve(value);
+            setPromptState(null);
+          }}
+          onCancel={() => {
+            promptState.resolve(null);
+            setPromptState(null);
+          }}
+        />
+      )}
     </div>
   );
 }

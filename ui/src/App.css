@@ -409,3 +409,78 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* Prompt modal */
+.prompt-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.prompt-dialog {
+  background: #2d2d2d;
+  border: 1px solid #555;
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.prompt-title {
+  color: #d4d4d4;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.prompt-input {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 14px;
+  outline: none;
+}
+
+.prompt-input:focus {
+  border-color: #007acc;
+}
+
+.prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.prompt-btn {
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  border: none;
+}
+
+.prompt-cancel {
+  background: #3c3c3c;
+  color: #d4d4d4;
+}
+
+.prompt-cancel:hover {
+  background: #4c4c4c;
+}
+
+.prompt-ok {
+  background: #0e639c;
+  color: #fff;
+}
+
+.prompt-ok:hover {
+  background: #1177bb;
+}
