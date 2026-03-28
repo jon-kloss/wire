@@ -239,7 +239,10 @@ mod tests {
     fn resolve_history_path_with_collection() {
         let col = Path::new("/tmp/myproject/.wire");
         let resolved = resolve_history_path(Some(col));
-        assert_eq!(resolved, PathBuf::from("/tmp/myproject/.wire/history.jsonl"));
+        assert_eq!(
+            resolved,
+            PathBuf::from("/tmp/myproject/.wire/history.jsonl")
+        );
     }
 
     #[test]

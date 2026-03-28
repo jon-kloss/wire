@@ -58,7 +58,10 @@ pub fn load_collection(wire_dir: &Path) -> Result<LoadedCollection, WireError> {
         for entry in std::fs::read_dir(&envs_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "yaml" || ext == "yml") {
+            if path
+                .extension()
+                .is_some_and(|ext| ext == "yaml" || ext == "yml")
+            {
                 let content = std::fs::read_to_string(&path)?;
                 let env: Environment = serde_yaml::from_str(&content)?;
                 let key = path
@@ -151,11 +154,7 @@ mod tests {
     fn load_single_request_file() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("test.wire.yaml");
-        fs::write(
-            &path,
-            "name: Test\nmethod: GET\nurl: https://example.com\n",
-        )
-        .unwrap();
+        fs::write(&path, "name: Test\nmethod: GET\nurl: https://example.com\n").unwrap();
 
         let req = load_request(&path).unwrap();
         assert_eq!(req.name, "Test");
@@ -183,7 +182,11 @@ mod tests {
         );
 
         assert_eq!(collection.requests.len(), 2);
-        let names: Vec<&str> = collection.requests.iter().map(|(_, r)| r.name.as_str()).collect();
+        let names: Vec<&str> = collection
+            .requests
+            .iter()
+            .map(|(_, r)| r.name.as_str())
+            .collect();
         assert!(names.contains(&"Login"));
         assert!(names.contains(&"List Users"));
     }

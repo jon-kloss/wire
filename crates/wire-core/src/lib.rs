@@ -6,8 +6,8 @@ pub mod variables;
 
 #[cfg(test)]
 mod tests {
-    use crate::collection::{BodyType, WireRequest};
     use crate::collection::Environment;
+    use crate::collection::{BodyType, WireRequest};
     use crate::variables::VariableScope;
     use std::collections::HashMap;
 

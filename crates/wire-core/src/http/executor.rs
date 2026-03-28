@@ -54,9 +54,7 @@ pub async fn execute(
             BodyType::Text => {
                 let text = body.content.as_str().unwrap_or_default();
                 let interpolated = interpolate(text, scope)?;
-                req = req
-                    .header("Content-Type", "text/plain")
-                    .body(interpolated);
+                req = req.header("Content-Type", "text/plain").body(interpolated);
             }
             BodyType::FormData => {
                 // For form data, content should be an object of key-value pairs
