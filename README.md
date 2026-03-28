@@ -18,6 +18,7 @@ Wire stores requests as human-readable YAML files that live in your repo alongsi
 - Save requests as `.wire.yaml` files — into a collection or standalone
 - Multiple collections displayed as expandable accordions with color-coded HTTP method badges
 - Collections dropdown menu for creating, importing, and managing collections
+- **Import from Codebase** — auto-discover HTTP endpoints from ASP.NET (controllers + minimal APIs) and Express/Node projects
 - Environment variables with `{{variable}}` interpolation and scoping (Global > Environment > Collection > Request)
 - Environment switching (dev/staging/prod)
 - Monaco editor for request body with JSON syntax highlighting

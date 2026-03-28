@@ -18,6 +18,7 @@ pub fn run() {
             commands::clear_history,
             commands::create_collection_cmd,
             commands::rename_collection_cmd,
+            commands::scan_codebase,
             commands::read_request,
             commands::save_request,
         ])

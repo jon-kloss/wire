@@ -41,6 +41,15 @@ export interface IpcRequestEntry {
   method: string;
 }
 
+/** Result of scanning a codebase for HTTP endpoints */
+export interface IpcScanResult {
+  framework: string;
+  endpoints_found: number;
+  files_scanned: number;
+  collection: IpcCollectionInfo | null;
+  wire_dir: string | null;
+}
+
 /** Collection info returned after opening a .wire/ directory */
 export interface IpcCollectionInfo {
   name: string;

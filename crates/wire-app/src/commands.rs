@@ -1,5 +1,5 @@
 use crate::state::AppState;
-use crate::types::{IpcCollectionInfo, IpcRequestEntry, IpcResponse};
+use crate::types::{IpcCollectionInfo, IpcRequestEntry, IpcResponse, IpcScanResult};
 use std::path::Path;
 use tauri::State;
 use wire_core::collection::{
@@ -7,6 +7,7 @@ use wire_core::collection::{
 };
 use wire_core::history::{self, HistoryEntry};
 use wire_core::http::execute;
+use wire_core::scan;
 use wire_core::variables::VariableScope;
 
 #[tauri::command]
@@ -225,6 +226,51 @@ pub async fn rename_collection_cmd(
     *state.collection.lock().await = Some(collection);
 
     Ok(info)
+}
+
+#[tauri::command]
+pub async fn scan_codebase(
+    project_dir: String,
+    output_dir: String,
+) -> Result<IpcScanResult, String> {
+    let project_path = Path::new(&project_dir);
+    let output_path = Path::new(&output_dir);
+
+    let (scan_result, collection) =
+        scan::scan_and_create_collection(project_path, output_path).map_err(|e| e.to_string())?;
+
+    let framework = format!("{:?}", scan_result.framework);
+
+    let (collection_info, wire_dir) = match collection {
+        Some(col) => {
+            let wire_dir = output_path.join(".wire");
+            let info = IpcCollectionInfo {
+                name: col.metadata.name.clone(),
+                version: col.metadata.version,
+                active_env: col.metadata.active_env.clone(),
+                requests: col
+                    .requests
+                    .iter()
+                    .map(|(p, r)| IpcRequestEntry {
+                        path: p.to_string_lossy().to_string(),
+                        name: r.name.clone(),
+                        method: r.method.clone(),
+                    })
+                    .collect(),
+                environments: col.environments.keys().cloned().collect(),
+            };
+            (Some(info), Some(wire_dir.to_string_lossy().to_string()))
+        }
+        None => (None, None),
+    };
+
+    Ok(IpcScanResult {
+        framework,
+        endpoints_found: scan_result.endpoints.len(),
+        files_scanned: scan_result.files_scanned,
+        collection: collection_info,
+        wire_dir,
+    })
 }
 
 #[tauri::command]

@@ -44,3 +44,13 @@ pub struct IpcCollectionInfo {
     pub requests: Vec<IpcRequestEntry>,
     pub environments: Vec<String>,
 }
+
+/// Result of scanning a codebase for HTTP endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IpcScanResult {
+    pub framework: String,
+    pub endpoints_found: usize,
+    pub files_scanned: usize,
+    pub collection: Option<IpcCollectionInfo>,
+    pub wire_dir: Option<String>,
+}

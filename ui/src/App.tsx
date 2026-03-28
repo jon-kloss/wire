@@ -5,6 +5,7 @@ import type {
   IpcResponse,
   IpcCollectionInfo,
   IpcRequestEntry,
+  IpcScanResult,
   HistoryEntry,
   WireRequest,
   WireBody,
@@ -245,6 +246,46 @@ function App() {
     setResponse(null);
     setError(null);
   }, [showPrompt]);
+
+  const handleImportFromCodebase = useCallback(async () => {
+    const selected = await open({ directory: true, multiple: false, title: "Select project to scan" });
+    if (!selected) return;
+
+    try {
+      const projectDir = selected as string;
+      // Use the project directory itself as the output location
+      const result = await invoke<IpcScanResult>("scan_codebase", {
+        projectDir,
+        outputDir: projectDir,
+      });
+
+      if (result.endpoints_found === 0) {
+        setError(
+          `No HTTP endpoints found in ${projectDir}. ` +
+          `Scanned ${result.files_scanned} files (detected: ${result.framework}).`
+        );
+        return;
+      }
+
+      if (result.collection && result.wire_dir) {
+        const wireDir = result.wire_dir;
+        setCollections((prev) => {
+          const existing = prev.findIndex((c) => c.path === wireDir);
+          if (existing >= 0) {
+            const updated = [...prev];
+            updated[existing] = { info: result.collection!, path: wireDir };
+            return updated;
+          }
+          return [...prev, { info: result.collection!, path: wireDir }];
+        });
+        setActiveCollectionPath(wireDir);
+        setExpandedCollections((prev) => new Set(prev).add(wireDir));
+        setSelectedEnv(result.collection!.active_env ?? null);
+      }
+    } catch (err) {
+      setError(String(err));
+    }
+  }, []);
 
   const handleDeleteCollection = useCallback((path: string) => {
     setCollections((prev) => prev.filter((c) => c.path !== path));
@@ -617,6 +658,15 @@ function App() {
                         }}
                       >
                         Import from URL
+                      </button>
+                      <button
+                        className="dropdown-item"
+                        onClick={() => {
+                          setDropdownOpen(false);
+                          handleImportFromCodebase();
+                        }}
+                      >
+                        Import from Codebase
                       </button>
                     </div>
                   </>
