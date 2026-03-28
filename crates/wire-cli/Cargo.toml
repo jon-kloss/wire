@@ -1,0 +1,16 @@
+[package]
+name = "wire-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "wire"
+path = "src/main.rs"
+
+[dependencies]
+wire-core = { path = "../wire-core" }
+clap = { version = "4", features = ["derive"] }
+colored = "3"
+tokio = { version = "1", features = ["full"] }
+serde_json = "1"

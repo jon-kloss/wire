@@ -1,3 +1,23 @@
+# Rust
+target/
+
+# Node
+node_modules/
+dist/
+
+# Environment / secrets
+.env
+*.key
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
 
 # Dolt database files (added by bd init)
 .dolt/

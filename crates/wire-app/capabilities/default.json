@@ -1,0 +1,9 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegui-org/nicegui/main/.schemas/tauri-capability.json",
+  "identifier": "default",
+  "description": "Default capabilities for Wire",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}
