@@ -1,16 +1,30 @@
-import { useState, useCallback, lazy, Suspense } from "react";
+import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
   IpcResponse,
   IpcCollectionInfo,
   IpcRequestEntry,
+  HistoryEntry,
   WireRequest,
   WireBody,
 } from "./types";
 import "./App.css";
 
 const MonacoEditor = lazy(() => import("@monaco-editor/react"));
+
+function formatTimeAgo(timestamp: string): string {
+  const now = Date.now();
+  const then = new Date(timestamp).getTime();
+  const seconds = Math.floor((now - then) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
 
 /** Method → color mapping for sidebar badges */
 const METHOD_COLORS: Record<string, string> = {
@@ -149,6 +163,26 @@ function App() {
     null
   );
 
+  // History state
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historyExpanded, setHistoryExpanded] = useState(true);
+
+  const refreshHistory = useCallback(async () => {
+    try {
+      const entries = await invoke<HistoryEntry[]>("list_history", {
+        limit: 100,
+      });
+      setHistory(entries.reverse()); // most recent first
+    } catch {
+      // History is non-critical — silently ignore errors
+    }
+  }, []);
+
+  // Load history on mount
+  useEffect(() => {
+    refreshHistory();
+  }, [refreshHistory]);
+
   const handleOpenCollection = useCallback(async () => {
     const selected = await open({ directory: true, multiple: false });
     if (!selected) return;
@@ -244,6 +278,7 @@ function App() {
       });
 
       setResponse(result);
+      refreshHistory();
     } catch (err) {
       setError(String(err));
     } finally {
@@ -325,6 +360,62 @@ function App() {
               selectedPath={selectedRequestPath}
             />
           ))}
+        </div>
+
+        {/* History Section */}
+        <div className="history-section">
+          <div
+            className="history-header"
+            onClick={() => setHistoryExpanded(!historyExpanded)}
+          >
+            <span className="folder-icon">
+              {historyExpanded ? "\u25BE" : "\u25B8"}
+            </span>
+            <h2>History</h2>
+            <span className="history-count">{history.length}</span>
+          </div>
+          {historyExpanded && (
+            <div className="history-list">
+              {history.length === 0 && (
+                <p className="placeholder">No history yet</p>
+              )}
+              {history.map((entry, i) => {
+                const color = METHOD_COLORS[entry.method] ?? "#d4d4d4";
+                const truncatedUrl =
+                  entry.url.length > 40
+                    ? entry.url.slice(0, 40) + "\u2026"
+                    : entry.url;
+                const ago = formatTimeAgo(entry.timestamp);
+                return (
+                  <div
+                    key={`${entry.timestamp}-${i}`}
+                    className="tree-item history-entry"
+                    onClick={() => {
+                      setMethod(entry.method);
+                      setUrl(entry.url);
+                      setSelectedRequestPath(null);
+                      setResponse(null);
+                      setError(null);
+                    }}
+                  >
+                    <span className="method-badge" style={{ color }}>
+                      {entry.method}
+                    </span>
+                    <span className="history-url" title={entry.url}>
+                      {truncatedUrl}
+                    </span>
+                    <span
+                      className="history-status"
+                      style={{ color: statusColor(entry.status) }}
+                    >
+                      {entry.status}
+                    </span>
+                    <span className="history-time">{ago}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </aside>
 

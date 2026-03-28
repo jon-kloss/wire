@@ -3,6 +3,7 @@ use crate::types::{IpcCollectionInfo, IpcRequestEntry, IpcResponse};
 use std::path::Path;
 use tauri::State;
 use wire_core::collection::{load_collection, load_request, WireRequest};
+use wire_core::history::{self, HistoryEntry};
 use wire_core::http::execute;
 use wire_core::variables::VariableScope;
 
@@ -66,7 +67,26 @@ pub async fn send_request(
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(IpcResponse::from(response))
+    // Fire-and-forget history recording
+    let ipc_response = IpcResponse::from(response);
+    let col_path = state.collection_path.lock().await;
+    let history_path = history::resolve_history_path(col_path.as_deref());
+    drop(col_path);
+    if let Err(e) = history::save_entry(
+        &history_path,
+        &HistoryEntry {
+            timestamp: chrono::Utc::now(),
+            name: request.name.clone(),
+            method: request.method.clone(),
+            url: request.url.clone(),
+            status: ipc_response.status,
+            elapsed_ms: ipc_response.elapsed_ms,
+        },
+    ) {
+        eprintln!("warning: failed to save history: {e}");
+    }
+
+    Ok(ipc_response)
 }
 
 #[tauri::command]
@@ -101,7 +121,45 @@ pub async fn send_raw_request(
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(IpcResponse::from(response))
+    // Fire-and-forget history recording
+    let ipc_response = IpcResponse::from(response);
+    let col_path = state.collection_path.lock().await;
+    let history_path = history::resolve_history_path(col_path.as_deref());
+    drop(col_path);
+    if let Err(e) = history::save_entry(
+        &history_path,
+        &HistoryEntry {
+            timestamp: chrono::Utc::now(),
+            name: request.name.clone(),
+            method: request.method.clone(),
+            url: request.url.clone(),
+            status: ipc_response.status,
+            elapsed_ms: ipc_response.elapsed_ms,
+        },
+    ) {
+        eprintln!("warning: failed to save history: {e}");
+    }
+
+    Ok(ipc_response)
+}
+
+#[tauri::command]
+pub async fn list_history(
+    limit: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<Vec<HistoryEntry>, String> {
+    let col_path = state.collection_path.lock().await;
+    let history_path = history::resolve_history_path(col_path.as_deref());
+    drop(col_path);
+    history::load_history(&history_path, limit.unwrap_or(50) as usize).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
+    let col_path = state.collection_path.lock().await;
+    let history_path = history::resolve_history_path(col_path.as_deref());
+    drop(col_path);
+    history::clear_history(&history_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

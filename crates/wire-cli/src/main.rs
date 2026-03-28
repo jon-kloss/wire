@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use colored::Colorize;
 use std::path::Path;
 use wire_core::collection::{load_collection, load_request};
+use wire_core::history::{self, HistoryEntry};
 use wire_core::http::{execute, HttpClient};
 use wire_core::variables::VariableScope;
 
@@ -35,6 +36,25 @@ enum Commands {
         #[arg(default_value = ".wire")]
         dir: String,
     },
+    /// View or manage request history
+    History {
+        #[command(subcommand)]
+        action: Option<HistoryAction>,
+
+        /// Maximum number of entries to show
+        #[arg(short, long, default_value = "50")]
+        limit: usize,
+
+        /// Path to .wire collection directory
+        #[arg(short = 'd', long, default_value = ".wire")]
+        wire_dir: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum HistoryAction {
+    /// Clear all request history
+    Clear,
 }
 
 #[tokio::main]
@@ -54,6 +74,16 @@ async fn main() {
         }
         Commands::List { dir } => {
             if let Err(e) = cmd_list(&dir) {
+                eprintln!("{}: {e}", "Error".red().bold());
+                std::process::exit(1);
+            }
+        }
+        Commands::History {
+            action,
+            limit,
+            wire_dir,
+        } => {
+            if let Err(e) = cmd_history(action, limit, &wire_dir) {
                 eprintln!("{}: {e}", "Error".red().bold());
                 std::process::exit(1);
             }
@@ -137,6 +167,27 @@ async fn cmd_send(
         println!("{}", response.body);
     }
 
+    // Fire-and-forget history recording
+    let wire_path = Path::new(wire_dir);
+    let history_path = if wire_path.is_dir() {
+        history::resolve_history_path(Some(wire_path))
+    } else {
+        history::resolve_history_path(None)
+    };
+    if let Err(e) = history::save_entry(
+        &history_path,
+        &HistoryEntry {
+            timestamp: chrono::Utc::now(),
+            name: request.name.clone(),
+            method: request.method.clone(),
+            url: request.url.clone(),
+            status: response.status,
+            elapsed_ms: response.elapsed.as_millis() as u64,
+        },
+    ) {
+        eprintln!("{}: failed to save history: {e}", "Warning".yellow());
+    }
+
     Ok(())
 }
 
@@ -190,6 +241,69 @@ fn cmd_list(dir: &str) -> Result<(), Box<dyn std::error::Error>> {
                 _ => req.method.normal(),
             };
             println!("  {} {} — {}", method_colored, req.name, relative.dimmed());
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_history(
+    action: Option<HistoryAction>,
+    limit: usize,
+    wire_dir: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let wire_path = Path::new(wire_dir);
+    let history_path = if wire_path.is_dir() {
+        history::resolve_history_path(Some(wire_path))
+    } else {
+        history::resolve_history_path(None)
+    };
+
+    match action {
+        Some(HistoryAction::Clear) => {
+            history::clear_history(&history_path)?;
+            println!("{}", "History cleared.".green());
+        }
+        None => {
+            let entries = history::load_history(&history_path, limit)?;
+            if entries.is_empty() {
+                println!("{}", "No history entries.".dimmed());
+                return Ok(());
+            }
+
+            println!("{}", "Request History:".bold());
+            println!();
+            for entry in &entries {
+                let method_colored = match entry.method.as_str() {
+                    "GET" => entry.method.green(),
+                    "POST" => entry.method.yellow(),
+                    "PUT" => entry.method.blue(),
+                    "PATCH" => entry.method.magenta(),
+                    "DELETE" => entry.method.red(),
+                    _ => entry.method.normal(),
+                };
+                let status_colored = if entry.status < 300 {
+                    format!("{}", entry.status).green()
+                } else if entry.status < 400 {
+                    format!("{}", entry.status).yellow()
+                } else {
+                    format!("{}", entry.status).red()
+                };
+                let timestamp = entry.timestamp.format("%Y-%m-%d %H:%M:%S");
+                println!(
+                    "  {} {} {} — {} {}ms",
+                    method_colored,
+                    entry.url,
+                    status_colored,
+                    timestamp.to_string().dimmed(),
+                    entry.elapsed_ms,
+                );
+            }
+            println!();
+            println!(
+                "{}",
+                format!("{} entries (showing last {limit})", entries.len()).dimmed()
+            );
         }
     }
 

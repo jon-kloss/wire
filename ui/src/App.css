@@ -103,6 +103,75 @@
   white-space: nowrap;
 }
 
+/* History section */
+.history-section {
+  border-top: 1px solid #3c3c3c;
+  flex-shrink: 0;
+  max-height: 40%;
+  display: flex;
+  flex-direction: column;
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid #3c3c3c;
+  flex-shrink: 0;
+}
+
+.history-header h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #cccccc;
+  flex: 1;
+}
+
+.history-count {
+  color: #666;
+  font-size: 11px;
+}
+
+.history-list {
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.history-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.history-url {
+  flex: 1;
+  color: #999;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.history-status {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+}
+
+.history-time {
+  color: #555;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 /* Center Panel: Request Builder */
 .request-builder {
   display: flex;

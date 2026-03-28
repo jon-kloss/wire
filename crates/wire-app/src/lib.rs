@@ -14,6 +14,8 @@ pub fn run() {
             commands::send_request,
             commands::send_raw_request,
             commands::list_environments,
+            commands::list_history,
+            commands::clear_history,
             commands::read_request,
             commands::save_request,
         ])

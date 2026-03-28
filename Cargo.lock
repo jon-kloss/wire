@@ -5532,6 +5532,7 @@ dependencies = [
 name = "wire-app"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -5546,6 +5547,7 @@ dependencies = [
 name = "wire-cli"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "clap",
  "colored",
  "serde_json",
@@ -5558,6 +5560,7 @@ name = "wire-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "dirs",
  "regex",
  "reqwest 0.12.28",
  "serde",

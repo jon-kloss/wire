@@ -24,6 +24,16 @@ export interface WireRequest {
   body: WireBody | null;
 }
 
+/** A history entry from the Rust backend */
+export interface HistoryEntry {
+  timestamp: string;
+  name: string;
+  method: string;
+  url: string;
+  status: number;
+  elapsed_ms: number;
+}
+
 /** A single request entry in a collection */
 export interface IpcRequestEntry {
   path: string;
