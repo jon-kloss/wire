@@ -915,6 +915,15 @@ function App() {
             Save
           </button>
         </div>
+        {url.includes("{{") && Object.keys(envVars).length > 0 && (
+          <div className="resolved-url">
+            {Object.entries(envVars).reduce(
+              (resolved, [key, value]) =>
+                resolved.replaceAll(`{{${key}}}`, value),
+              url
+            )}
+          </div>
+        )}
         <div className="request-tabs">
           <div className="tabs">
             <button

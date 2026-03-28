@@ -433,6 +433,19 @@
   border-color: #007acc;
 }
 
+/* Resolved URL preview */
+.resolved-url {
+  padding: 4px 16px;
+  font-size: 11px;
+  color: #4ec9b0;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  background: #1e1e1e;
+  border-bottom: 1px solid #3c3c3c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tab-placeholder {
   display: flex;
   align-items: center;
