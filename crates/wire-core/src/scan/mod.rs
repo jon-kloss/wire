@@ -155,11 +155,17 @@ fn to_camel_case(name: &str) -> String {
 /// Map a C# type name to a sensible JSON default value.
 fn csharp_type_default(type_hint: &str) -> serde_json::Value {
     let normalized = type_hint.trim_end_matches('?').to_lowercase();
+    if normalized.starts_with("list<") || normalized.starts_with("ienumerable<") {
+        return serde_json::Value::Array(Vec::new());
+    }
     match normalized.as_str() {
         "int" | "long" | "short" | "byte" | "float" | "double" | "decimal" => {
             serde_json::Value::Number(serde_json::Number::from(0))
         }
         "bool" | "boolean" => serde_json::Value::Bool(false),
+        "datetime" | "datetimeoffset" => {
+            serde_json::Value::String("2025-01-01T00:00:00Z".to_string())
+        }
         _ => serde_json::Value::String(String::new()),
     }
 }
@@ -603,5 +609,10 @@ public class UsersController : ControllerBase
         assert_eq!(csharp_type_default("Guid"), serde_json::json!(""));
         assert_eq!(csharp_type_default("string?"), serde_json::json!(""));
         assert_eq!(csharp_type_default("int?"), serde_json::json!(0));
+        assert_eq!(csharp_type_default("List<Guid>"), serde_json::json!([]));
+        assert_eq!(
+            csharp_type_default("DateTime?"),
+            serde_json::json!("2025-01-01T00:00:00Z")
+        );
     }
 }

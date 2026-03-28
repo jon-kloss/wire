@@ -42,14 +42,25 @@ pub fn scan_aspnet(project_dir: &Path) -> (Vec<DiscoveredEndpoint>, usize) {
     (endpoints, files_scanned)
 }
 
-/// Find public properties of a C# class by name in source code.
-/// Extracts auto-properties like: public string Name { get; set; }
+/// Find public properties of a C# class or record by name in source code.
+/// Handles:
+/// - Class auto-properties: public string Name { get; set; }
+/// - Positional records: public record Foo(string Name, int Age);
+/// - Record with body: public record Foo(string Name) { ... }
 fn find_class_properties(source: &str, class_name: &str) -> Vec<(String, String)> {
-    // Find the class declaration
-    let class_pattern = format!(
-        r"(?s)(?:public\s+)?class\s+{}\b[^{{]*\{{",
-        regex::escape(class_name)
-    );
+    let escaped = regex::escape(class_name);
+
+    // Try positional record first: public record Name(Type Param, Type Param, ...);
+    let record_pattern = format!(r"(?:public\s+)?record\s+{}\s*\(([^)]+)\)", escaped);
+    if let Ok(record_re) = Regex::new(&record_pattern) {
+        if let Some(cap) = record_re.captures(source) {
+            let params_str = &cap[1];
+            return parse_record_params(params_str);
+        }
+    }
+
+    // Try class with properties: public class Name { public Type Prop { get; set; } }
+    let class_pattern = format!(r"(?s)(?:public\s+)?class\s+{}\b[^{{]*\{{", escaped);
     let class_re = match Regex::new(&class_pattern) {
         Ok(r) => r,
         Err(_) => return Vec::new(),
@@ -61,7 +72,7 @@ fn find_class_properties(source: &str, class_name: &str) -> Vec<(String, String)
     };
 
     // Extract the class body using balanced braces
-    let start = class_match.end(); // position after the opening {
+    let start = class_match.end();
     let bytes = source.as_bytes();
     let mut depth = 1;
     let mut pos = start;
@@ -78,7 +89,6 @@ fn find_class_properties(source: &str, class_name: &str) -> Vec<(String, String)
     let class_body = &source[start..pos];
 
     // Match public properties: public Type Name { get; set; }
-    // Handles: nullable types (string?), generic types (List<string>), required keyword
     let prop_re =
         Regex::new(r"(?m)public\s+(?:required\s+)?(\w+(?:\?|<[^>]+>)?)\s+(\w+)\s*\{\s*get;")
             .unwrap();
@@ -88,6 +98,51 @@ fn find_class_properties(source: &str, class_name: &str) -> Vec<(String, String)
         let type_name = cap[1].to_string();
         let prop_name = cap[2].to_string();
         properties.push((prop_name, type_name));
+    }
+
+    properties
+}
+
+/// Parse positional record parameters: "string Name, int? Age, List<Guid> Ids"
+fn parse_record_params(params_str: &str) -> Vec<(String, String)> {
+    let mut properties = Vec::new();
+    // Split on commas, but respect generic angle brackets
+    let mut depth = 0;
+    let mut current = String::new();
+    let mut segments = Vec::new();
+
+    for ch in params_str.chars() {
+        match ch {
+            '<' => {
+                depth += 1;
+                current.push(ch);
+            }
+            '>' => {
+                depth -= 1;
+                current.push(ch);
+            }
+            ',' if depth == 0 => {
+                segments.push(current.trim().to_string());
+                current = String::new();
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.trim().is_empty() {
+        segments.push(current.trim().to_string());
+    }
+
+    for segment in segments {
+        // Each segment: "Type Name" or "Type? Name" or "List<Type> Name" with optional default
+        let segment = segment.split('=').next().unwrap_or("").trim();
+        let parts: Vec<&str> = segment.rsplitn(2, char::is_whitespace).collect();
+        if parts.len() == 2 {
+            let param_name = parts[0].trim().to_string();
+            let type_name = parts[1].trim().to_string();
+            if !param_name.is_empty() && !type_name.is_empty() {
+                properties.push((param_name, type_name));
+            }
+        }
     }
 
     properties
@@ -325,8 +380,10 @@ fn parse_params(params_str: &str) -> ParamMeta {
     }
 
     // Match [FromQuery] or [FromQuery(Name = "filter")]
+    // Type can be: string, int?, List<int>?, etc.
     let from_query_re =
-        Regex::new(r#"\[FromQuery(?:\(Name\s*=\s*"([^"]+)"\))?\]\s*\w+\s+(\w+)"#).unwrap();
+        Regex::new(r#"\[FromQuery(?:\(Name\s*=\s*"([^"]+)"\))?\]\s*\w+(?:<[^>]+>)?\??\s+(\w+)"#)
+            .unwrap();
     for cap in from_query_re.captures_iter(params_str) {
         let param_name = cap
             .get(1)
@@ -706,6 +763,37 @@ public class UserDto
         assert_eq!(props.len(), 2);
         assert_eq!(props[0], ("Email".to_string(), "string".to_string()));
         assert_eq!(props[1], ("DisplayName".to_string(), "string?".to_string()));
+    }
+
+    #[test]
+    fn find_class_properties_extracts_record_params() {
+        let source = r#"
+public record CreateTourRequest(string Name, string? Description, DateTime? ScheduledDate, List<Guid> BreweryIds);
+"#;
+        let props = find_class_properties(source, "CreateTourRequest");
+        assert_eq!(props.len(), 4);
+        assert_eq!(props[0], ("Name".to_string(), "string".to_string()));
+        assert_eq!(props[1], ("Description".to_string(), "string?".to_string()));
+        assert_eq!(
+            props[2],
+            ("ScheduledDate".to_string(), "DateTime?".to_string())
+        );
+        assert_eq!(
+            props[3],
+            ("BreweryIds".to_string(), "List<Guid>".to_string())
+        );
+    }
+
+    #[test]
+    fn find_class_properties_extracts_record_with_defaults() {
+        let source = r#"
+public record GoogleLoginRequest(string IdToken);
+public record DevLoginRequest(string Email, string DisplayName);
+"#;
+        let props = find_class_properties(source, "DevLoginRequest");
+        assert_eq!(props.len(), 2);
+        assert_eq!(props[0], ("Email".to_string(), "string".to_string()));
+        assert_eq!(props[1], ("DisplayName".to_string(), "string".to_string()));
     }
 
     #[test]
