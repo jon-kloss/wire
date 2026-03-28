@@ -212,6 +212,26 @@ fn extract_aspnet_urls(json: &serde_json::Value, variables: &mut HashMap<String,
         }
     }
 
+    // Check common top-level URL keys (e.g., "BaseUrl", "ApplicationUrl")
+    if !variables.contains_key("baseUrl") {
+        let url_keys = [
+            "BaseUrl",
+            "baseUrl",
+            "ApplicationUrl",
+            "ApiUrl",
+            "ServerUrl",
+        ];
+        for key in url_keys {
+            if let Some(url) = json.get(key).and_then(|u| u.as_str()) {
+                if let Some((schema, host_port)) = parse_url_parts(url) {
+                    variables.insert("schema".to_string(), schema);
+                    variables.insert("baseUrl".to_string(), host_port);
+                    break;
+                }
+            }
+        }
+    }
+
     // Extract non-sensitive app settings
     if let Some(app_settings) = json.get("AppSettings").and_then(|a| a.as_object()) {
         for (key, value) in app_settings {
@@ -528,6 +548,33 @@ mod tests {
         assert!(!is_sensitive_key("Hockey"));
         assert!(!is_sensitive_key("PublicEndpoint"));
         assert!(!is_sensitive_key("FeatureXEnabled"));
+    }
+
+    #[test]
+    fn aspnet_discovers_top_level_base_url() {
+        let dir = TempDir::new().unwrap();
+
+        fs::write(
+            dir.path().join("appsettings.Development.json"),
+            r#"{"BaseUrl": "https://localhost:5001/", "Logging": {"LogLevel": {"Default": "Information"}}}"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("appsettings.Production.json"),
+            r#"{"BaseUrl": "https://api.example.com/", "Logging": {"LogLevel": {"Default": "Warning"}}}"#,
+        )
+        .unwrap();
+
+        let envs = discover_aspnet_envs(dir.path());
+        assert_eq!(envs.len(), 2);
+
+        let dev = envs.iter().find(|e| e.filename == "dev").unwrap();
+        assert_eq!(dev.variables["schema"], "https");
+        assert_eq!(dev.variables["baseUrl"], "localhost:5001");
+
+        let prod = envs.iter().find(|e| e.filename == "prod").unwrap();
+        assert_eq!(prod.variables["schema"], "https");
+        assert_eq!(prod.variables["baseUrl"], "api.example.com");
     }
 
     #[test]
