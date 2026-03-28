@@ -217,4 +217,81 @@ mod tests {
         assert!(collection.requests.is_empty());
         assert!(collection.environments.is_empty());
     }
+
+    #[test]
+    fn load_collection_deeply_nested_requests() {
+        let dir = TempDir::new().unwrap();
+        let wire_dir = dir.path().join(".wire");
+        fs::create_dir_all(wire_dir.join("requests/api/v2/admin")).unwrap();
+        fs::write(
+            wire_dir.join("requests/api/v2/admin/create.wire.yaml"),
+            "name: Deep Request\nmethod: POST\nurl: https://example.com/deep\n",
+        )
+        .unwrap();
+
+        let collection = load_collection(&wire_dir).unwrap();
+        assert_eq!(collection.requests.len(), 1);
+        assert_eq!(collection.requests[0].1.name, "Deep Request");
+    }
+
+    #[test]
+    fn load_collection_ignores_non_wire_yaml_files() {
+        let dir = TempDir::new().unwrap();
+        let wire_dir = dir.path().join(".wire");
+        fs::create_dir_all(wire_dir.join("requests")).unwrap();
+
+        // This should be loaded
+        fs::write(
+            wire_dir.join("requests/valid.wire.yaml"),
+            "name: Valid\nmethod: GET\nurl: https://example.com\n",
+        )
+        .unwrap();
+
+        // These should be ignored
+        fs::write(wire_dir.join("requests/notes.txt"), "some notes").unwrap();
+        fs::write(
+            wire_dir.join("requests/other.yaml"),
+            "name: Not Wire\nmethod: GET\nurl: https://example.com\n",
+        )
+        .unwrap();
+        fs::write(wire_dir.join("requests/readme.md"), "# Readme").unwrap();
+
+        let collection = load_collection(&wire_dir).unwrap();
+        assert_eq!(collection.requests.len(), 1);
+        assert_eq!(collection.requests[0].1.name, "Valid");
+    }
+
+    #[test]
+    fn load_request_malformed_yaml_fails() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("bad.wire.yaml");
+        fs::write(&path, "this: is: not: valid: yaml: {{").unwrap();
+
+        let result = load_request(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn load_request_nonexistent_file_fails() {
+        let result = load_request(Path::new("/nonexistent/path/req.wire.yaml"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn load_collection_ignores_non_yaml_env_files() {
+        let dir = TempDir::new().unwrap();
+        let wire_dir = dir.path().join(".wire");
+        fs::create_dir_all(wire_dir.join("envs")).unwrap();
+
+        fs::write(
+            wire_dir.join("envs/dev.yaml"),
+            "name: Dev\nvariables:\n  url: http://localhost\n",
+        )
+        .unwrap();
+        fs::write(wire_dir.join("envs/notes.txt"), "not an env").unwrap();
+
+        let collection = load_collection(&wire_dir).unwrap();
+        assert_eq!(collection.environments.len(), 1);
+        assert!(collection.environments.contains_key("dev"));
+    }
 }
