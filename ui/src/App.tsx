@@ -182,7 +182,10 @@ function App() {
     if (!selected) return;
 
     try {
-      const wireDir = selected as string;
+      // User may select the parent dir (e.g., "myproject") or the .wire dir directly.
+      // Normalize to the .wire dir for the backend.
+      const raw = selected as string;
+      const wireDir = raw.endsWith("/.wire") ? raw : raw + "/.wire";
       const info = await invoke<IpcCollectionInfo>("open_collection", {
         wireDir,
       });
