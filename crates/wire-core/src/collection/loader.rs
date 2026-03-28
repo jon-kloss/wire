@@ -11,6 +11,35 @@ pub struct LoadedCollection {
     pub environments: HashMap<String, Environment>,
 }
 
+/// Create a new .wire/ collection directory with the given name.
+/// Creates wire.yaml metadata, envs/, and requests/ directories.
+/// Returns the loaded collection.
+pub fn create_collection(parent_dir: &Path, name: &str) -> Result<LoadedCollection, WireError> {
+    let wire_dir = parent_dir.join(".wire");
+
+    // Guard: do not overwrite an existing collection
+    if wire_dir.join("wire.yaml").exists() {
+        return Err(WireError::Other(format!(
+            "Collection already exists at {}",
+            wire_dir.display()
+        )));
+    }
+
+    std::fs::create_dir_all(wire_dir.join("envs"))?;
+    std::fs::create_dir_all(wire_dir.join("requests"))?;
+
+    // Use serde to properly escape the collection name in YAML
+    let metadata_obj = WireCollection {
+        name: name.to_string(),
+        version: 1,
+        active_env: None,
+    };
+    let metadata = serde_yaml::to_string(&metadata_obj)?;
+    std::fs::write(wire_dir.join("wire.yaml"), metadata)?;
+
+    load_collection(&wire_dir)
+}
+
 /// Load a single .wire.yaml request file.
 pub fn load_request(path: &Path) -> Result<WireRequest, WireError> {
     let content = std::fs::read_to_string(path)?;
@@ -275,6 +304,61 @@ mod tests {
     fn load_request_nonexistent_file_fails() {
         let result = load_request(Path::new("/nonexistent/path/req.wire.yaml"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn create_collection_creates_directory_structure() {
+        let dir = TempDir::new().unwrap();
+        let collection = create_collection(dir.path(), "My API").unwrap();
+
+        assert_eq!(collection.metadata.name, "My API");
+        assert_eq!(collection.metadata.version, 1);
+        assert!(collection.requests.is_empty());
+        assert!(collection.environments.is_empty());
+
+        // Verify directory structure
+        let wire_dir = dir.path().join(".wire");
+        assert!(wire_dir.join("wire.yaml").exists());
+        assert!(wire_dir.join("envs").is_dir());
+        assert!(wire_dir.join("requests").is_dir());
+    }
+
+    #[test]
+    fn create_collection_then_add_request() {
+        let dir = TempDir::new().unwrap();
+        create_collection(dir.path(), "Test API").unwrap();
+
+        // Save a request into the collection
+        let wire_dir = dir.path().join(".wire");
+        fs::write(
+            wire_dir.join("requests/health.wire.yaml"),
+            "name: Health\nmethod: GET\nurl: https://example.com/health\n",
+        )
+        .unwrap();
+
+        // Reload and verify
+        let reloaded = load_collection(&wire_dir).unwrap();
+        assert_eq!(reloaded.requests.len(), 1);
+        assert_eq!(reloaded.requests[0].1.name, "Health");
+    }
+
+    #[test]
+    fn create_collection_fails_if_already_exists() {
+        let dir = TempDir::new().unwrap();
+        create_collection(dir.path(), "First").unwrap();
+
+        // Second create on same dir should fail
+        let result = create_collection(dir.path(), "Second");
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("already exists"));
+    }
+
+    #[test]
+    fn create_collection_with_special_yaml_chars_in_name() {
+        let dir = TempDir::new().unwrap();
+        let collection = create_collection(dir.path(), "My API: v2 {test}").unwrap();
+        assert_eq!(collection.metadata.name, "My API: v2 {test}");
     }
 
     #[test]

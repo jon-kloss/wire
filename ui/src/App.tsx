@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import type {
   IpcResponse,
   IpcCollectionInfo,
@@ -135,16 +135,108 @@ function App() {
 
     try {
       // Look for .wire/ subdirectory or use the selected directory directly
+      // open_collection expects the .wire dir itself
+      const wireDir = selected as string;
       const info = await invoke<IpcCollectionInfo>("open_collection", {
-        wireDir: selected,
+        wireDir,
       });
       setCollection(info);
-      setCollectionPath(selected as string);
+      setCollectionPath(wireDir);
       setSelectedEnv(info.active_env ?? null);
     } catch (err) {
       setError(String(err));
     }
   }, []);
+
+  const handleNewCollection = useCallback(async () => {
+    const name = window.prompt("Collection name:");
+    if (!name?.trim()) return;
+
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Choose directory for new collection",
+    });
+    if (!selected) return;
+
+    try {
+      const info = await invoke<IpcCollectionInfo>("create_collection_cmd", {
+        name: name.trim(),
+        parentDir: selected,
+      });
+      setCollection(info);
+      setCollectionPath((selected as string) + "/.wire");
+      setSelectedEnv(info.active_env ?? null);
+      refreshHistory();
+    } catch (err) {
+      setError(String(err));
+    }
+  }, []);
+
+  const handleSaveRequest = useCallback(async () => {
+    let defaultName = "request";
+    try {
+      if (url) defaultName = new URL(url).pathname.split("/").pop() || "request";
+    } catch {
+      // invalid URL — use default
+    }
+    const name = window.prompt("Request name:", defaultName);
+    if (!name?.trim()) return;
+
+    // Default to collection's requests dir if one is open
+    const defaultPath = collectionPath
+      ? collectionPath + "/requests/" + name.trim().replace(/\s+/g, "-").toLowerCase() + ".wire.yaml"
+      : undefined;
+
+    const filePath = await save({
+      title: "Save request as",
+      defaultPath,
+      filters: [{ name: "Wire Request", extensions: ["wire.yaml"] }],
+    });
+    if (!filePath) return;
+
+    try {
+      const headers: Record<string, string> = {};
+      if (headersText.trim()) {
+        for (const line of headersText.split("\n")) {
+          const idx = line.indexOf(":");
+          if (idx > 0) {
+            headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+          }
+        }
+      }
+
+      let body: WireBody | null = null;
+      if (bodyText.trim() && ["POST", "PUT", "PATCH"].includes(method)) {
+        try {
+          body = { type: "json", content: JSON.parse(bodyText) };
+        } catch {
+          body = { type: "text", content: bodyText };
+        }
+      }
+
+      const request: WireRequest = {
+        name: name.trim(),
+        method,
+        url,
+        headers,
+        params: {},
+        body,
+      };
+
+      await invoke("save_request", { path: filePath, request });
+
+      // Refresh sidebar if saved into current collection
+      if (collectionPath && filePath.startsWith(collectionPath)) {
+        const info = await invoke<IpcCollectionInfo>("open_collection", {
+          wireDir: collectionPath,
+        });
+        setCollection(info);
+      }
+    } catch (err) {
+      setError(String(err));
+    }
+  }, [method, url, headersText, bodyText, collectionPath]);
 
   const handleSelectRequest = useCallback(
     async (entry: IpcRequestEntry) => {
@@ -252,9 +344,14 @@ function App() {
       <aside className="sidebar">
         <div className="panel-header">
           <h2>Collections</h2>
-          <button className="open-btn" onClick={handleOpenCollection}>
-            Open
-          </button>
+          <div className="sidebar-actions">
+            <button className="open-btn" onClick={handleNewCollection}>
+              New
+            </button>
+            <button className="open-btn" onClick={handleOpenCollection}>
+              Open
+            </button>
+          </div>
         </div>
 
         {collection && collection.environments.length > 0 && (
@@ -375,6 +472,9 @@ function App() {
           />
           <button className="send-btn" onClick={handleSend} disabled={loading}>
             {loading ? "Sending..." : "Send"}
+          </button>
+          <button className="save-btn" onClick={handleSaveRequest}>
+            Save
           </button>
         </div>
         <div className="request-tabs">

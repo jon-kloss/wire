@@ -16,6 +16,7 @@ pub fn run() {
             commands::list_environments,
             commands::list_history,
             commands::clear_history,
+            commands::create_collection_cmd,
             commands::read_request,
             commands::save_request,
         ])

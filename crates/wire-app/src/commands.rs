@@ -2,7 +2,7 @@ use crate::state::AppState;
 use crate::types::{IpcCollectionInfo, IpcRequestEntry, IpcResponse};
 use std::path::Path;
 use tauri::State;
-use wire_core::collection::{load_collection, load_request, WireRequest};
+use wire_core::collection::{create_collection, load_collection, load_request, WireRequest};
 use wire_core::history::{self, HistoryEntry};
 use wire_core::http::execute;
 use wire_core::variables::VariableScope;
@@ -160,6 +160,38 @@ pub async fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
     let history_path = history::resolve_history_path(col_path.as_deref());
     drop(col_path);
     history::clear_history(&history_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn create_collection_cmd(
+    name: String,
+    parent_dir: String,
+    state: State<'_, AppState>,
+) -> Result<IpcCollectionInfo, String> {
+    let parent = Path::new(&parent_dir);
+    let collection = create_collection(parent, &name).map_err(|e| e.to_string())?;
+    let wire_dir = parent.join(".wire");
+
+    let info = IpcCollectionInfo {
+        name: collection.metadata.name.clone(),
+        version: collection.metadata.version,
+        active_env: collection.metadata.active_env.clone(),
+        requests: collection
+            .requests
+            .iter()
+            .map(|(p, r)| IpcRequestEntry {
+                path: p.to_string_lossy().to_string(),
+                name: r.name.clone(),
+                method: r.method.clone(),
+            })
+            .collect(),
+        environments: collection.environments.keys().cloned().collect(),
+    };
+
+    *state.collection_path.lock().await = Some(wire_dir.clone());
+    *state.collection.lock().await = Some(collection);
+
+    Ok(info)
 }
 
 #[tauri::command]
