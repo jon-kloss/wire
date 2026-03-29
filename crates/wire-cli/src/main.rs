@@ -97,6 +97,8 @@ enum Commands {
         #[command(subcommand)]
         action: EnvAction,
     },
+    /// Install Wire's Claude Code skill and configure integrations
+    Setup,
     /// View or manage request history
     History {
         #[command(subcommand)]
@@ -193,6 +195,9 @@ async fn main() {
         } => {
             let exit_code = cmd_drift(&project_dir, &wire_dir, fix, &output);
             std::process::exit(exit_code);
+        }
+        Commands::Setup => {
+            cmd_setup();
         }
         Commands::Env { action } => match action {
             EnvAction::Check { wire_dir } => {
@@ -630,6 +635,49 @@ fn cmd_drift(project_dir: &str, wire_dir: &str, fix: bool, output: &str) -> i32 
     } else {
         0
     }
+}
+
+fn cmd_setup() {
+    println!("{}", "Wire Setup".cyan().bold());
+    println!();
+
+    // Install Claude Code skill
+    let skill_content = include_str!("../../../skills/wire.md");
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let commands_dir = Path::new(&home).join(".claude").join("commands");
+
+    match std::fs::create_dir_all(&commands_dir) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!(
+                "  {} Failed to create {}: {e}",
+                "\u{2717}".red().bold(),
+                commands_dir.display()
+            );
+            return;
+        }
+    }
+
+    let skill_path = commands_dir.join("wire.md");
+    match std::fs::write(&skill_path, skill_content) {
+        Ok(_) => {
+            println!(
+                "  {} Claude Code skill installed at {}",
+                "\u{2713}".green().bold(),
+                skill_path.display()
+            );
+            println!(
+                "    {}",
+                "Claude Code can now use /wire for HTTP requests".dimmed()
+            );
+        }
+        Err(e) => {
+            eprintln!("  {} Failed to write skill: {e}", "\u{2717}".red().bold());
+        }
+    }
+
+    println!();
+    println!("{}", "Setup complete.".green().bold());
 }
 
 fn cmd_env_check(wire_dir: &str) -> i32 {
