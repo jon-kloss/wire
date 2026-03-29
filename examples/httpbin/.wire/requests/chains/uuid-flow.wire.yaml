@@ -8,7 +8,7 @@ chain:
   - run: anything/anything-get
     extract:
       origin: body.origin
-      user_agent: headers.user-agent
+      user_agent: body.headers.User-Agent
   - run: request-inspection/headers
     extract:
       host: body.headers.Host
