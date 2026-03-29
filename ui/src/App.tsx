@@ -66,13 +66,16 @@ function TreeItem({
   depth,
   onSelect,
   selectedPath,
+  defaultExpanded = true,
 }: {
   node: TreeNode;
   depth: number;
   onSelect: (entry: IpcRequestEntry) => void;
   selectedPath: string | null;
+  defaultExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  useEffect(() => { setExpanded(defaultExpanded); }, [defaultExpanded]);
   const isFolder = !node.entry && node.children.size > 0;
   const isSelected = node.entry?.path === selectedPath;
 
@@ -118,6 +121,7 @@ function TreeItem({
               depth={depth + 1}
               onSelect={onSelect}
               selectedPath={selectedPath}
+              defaultExpanded={defaultExpanded}
             />
           ))}
       </div>
@@ -164,6 +168,7 @@ function App() {
   const [envVarsMap, setEnvVarsMap] = useState<Record<string, Record<string, string>>>({});
   const [expandedEnvSections, setExpandedEnvSections] = useState<Set<string>>(new Set());
   const [expandedTemplateSections, setExpandedTemplateSections] = useState<Set<string>>(new Set());
+  const [foldersExpanded, setFoldersExpanded] = useState(true);
   const [selectedRequestPath, setSelectedRequestPath] = useState<string | null>(
     null
   );
@@ -1262,6 +1267,15 @@ function App() {
                             )}
                           </div>
                         <div className="collection-requests">
+                          {sorted.some((c) => !c.entry) && (
+                            <button
+                              className="collapse-all-btn"
+                              onClick={() => setFoldersExpanded((prev) => !prev)}
+                              title={foldersExpanded ? "Collapse all folders" : "Expand all folders"}
+                            >
+                              {foldersExpanded ? "\u25BC" : "\u25B6"}
+                            </button>
+                          )}
                           {sorted.length === 0 && (
                             <p className="placeholder collection-empty">
                               {filterText
@@ -1284,6 +1298,7 @@ function App() {
                                 handleSelectRequest(entry);
                               }}
                               selectedPath={selectedRequestPath}
+                              defaultExpanded={foldersExpanded}
                             />
                           ))}
                         </div>

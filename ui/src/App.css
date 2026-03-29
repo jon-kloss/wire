@@ -248,6 +248,24 @@
 
 .collection-requests {
   padding-bottom: 4px;
+  position: relative;
+}
+
+.collapse-all-btn {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 10px;
+  padding: 2px 4px;
+  z-index: 1;
+}
+
+.collapse-all-btn:hover {
+  color: #d4d4d4;
 }
 
 .collection-empty {
