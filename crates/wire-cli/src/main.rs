@@ -99,6 +99,8 @@ enum Commands {
     },
     /// Install Wire's Claude Code skill and configure integrations
     Setup,
+    /// Remove Wire's Claude Code skill and clean up
+    Uninstall,
     /// View or manage request history
     History {
         #[command(subcommand)]
@@ -198,6 +200,9 @@ async fn main() {
         }
         Commands::Setup => {
             cmd_setup();
+        }
+        Commands::Uninstall => {
+            cmd_uninstall();
         }
         Commands::Env { action } => match action {
             EnvAction::Check { wire_dir } => {
@@ -678,6 +683,47 @@ fn cmd_setup() {
 
     println!();
     println!("{}", "Setup complete.".green().bold());
+}
+
+fn cmd_uninstall() {
+    println!("{}", "Wire Uninstall".cyan().bold());
+    println!();
+
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let skill_path = Path::new(&home)
+        .join(".claude")
+        .join("commands")
+        .join("wire.md");
+
+    if skill_path.exists() {
+        match std::fs::remove_file(&skill_path) {
+            Ok(_) => {
+                println!(
+                    "  {} Removed Claude Code skill at {}",
+                    "\u{2713}".green().bold(),
+                    skill_path.display()
+                );
+            }
+            Err(e) => {
+                eprintln!(
+                    "  {} Failed to remove {}: {e}",
+                    "\u{2717}".red().bold(),
+                    skill_path.display()
+                );
+            }
+        }
+    } else {
+        println!(
+            "  {} No Claude Code skill found (already removed)",
+            "\u{2713}".green().bold(),
+        );
+    }
+
+    println!();
+    println!(
+        "{}",
+        "To fully remove Wire, run: cargo uninstall wire-cli".dimmed()
+    );
 }
 
 fn cmd_env_check(wire_dir: &str) -> i32 {
