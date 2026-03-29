@@ -11,6 +11,7 @@ import type {
   WireBody,
   Assertion,
   TestResult,
+  DriftReport,
 } from "./types";
 import type { TreeNode } from "./utils";
 import {
@@ -174,7 +175,7 @@ function App() {
   const [isEditingTemplate, setIsEditingTemplate] = useState(false);
 
   // Sidebar state
-  const [sidebarTab, setSidebarTab] = useState<"collections" | "activity">(
+  const [sidebarTab, setSidebarTab] = useState<"collections" | "activity" | "drift">(
     "collections"
   );
   const [filterText, setFilterText] = useState("");
@@ -187,6 +188,11 @@ function App() {
   // Derived template state for active collection
   const activeCollection = collections.find((c) => c.path === activeCollectionPath);
   const activeTemplates = activeCollection?.info.templates ?? [];
+
+  // Drift state
+  const [driftReport, setDriftReport] = useState<DriftReport | null>(null);
+  const [driftLoading, setDriftLoading] = useState(false);
+  const [driftProjectDir, setDriftProjectDir] = useState("");
 
   // History state
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -841,6 +847,15 @@ function App() {
           >
             Activity
           </button>
+          <button
+            className={`sidebar-tab ${sidebarTab === "drift" ? "active" : ""}`}
+            onClick={() => {
+              setSidebarTab("drift");
+              setDropdownOpen(false);
+            }}
+          >
+            Drift
+          </button>
         </div>
 
         {sidebarTab === "collections" && (
@@ -1327,6 +1342,89 @@ function App() {
                 );
               })}
             </div>
+          </div>
+        )}
+        {sidebarTab === "drift" && (
+          <div className="sidebar-content drift-panel">
+            <div className="drift-controls">
+              <input
+                className="drift-input"
+                type="text"
+                placeholder="Project source directory..."
+                value={driftProjectDir}
+                onChange={(e) => setDriftProjectDir(e.target.value)}
+              />
+              <button
+                className="drift-browse-btn"
+                onClick={async () => {
+                  const selected = await open({ directory: true });
+                  if (selected) setDriftProjectDir(selected as string);
+                }}
+              >
+                Browse
+              </button>
+              <button
+                className="drift-check-btn"
+                disabled={driftLoading || !driftProjectDir || !activeCollectionPath}
+                onClick={async () => {
+                  if (!driftProjectDir || !activeCollectionPath) return;
+                  setDriftLoading(true);
+                  try {
+                    const report = await invoke<DriftReport>("check_drift", {
+                      projectDir: driftProjectDir,
+                    });
+                    setDriftReport(report ?? { items: [], new_count: 0, stale_count: 0, changed_count: 0 });
+                  } catch (err) {
+                    setDriftReport(null);
+                    setError(typeof err === "string" ? err : String(err));
+                  } finally {
+                    setDriftLoading(false);
+                  }
+                }}
+              >
+                {driftLoading ? "Checking..." : "Check Drift"}
+              </button>
+            </div>
+            {!activeCollectionPath && (
+              <p className="placeholder">Open a collection first</p>
+            )}
+            {driftReport && !driftReport.items.length && (
+              <div className="drift-no-drift">No drift detected</div>
+            )}
+            {driftReport && driftReport.items.length > 0 && (
+              <div className="drift-results">
+                <div className="drift-summary">
+                  {driftReport.new_count > 0 && (
+                    <span className="drift-badge drift-new">+{driftReport.new_count} new</span>
+                  )}
+                  {driftReport.stale_count > 0 && (
+                    <span className="drift-badge drift-stale">-{driftReport.stale_count} stale</span>
+                  )}
+                  {driftReport.changed_count > 0 && (
+                    <span className="drift-badge drift-changed">~{driftReport.changed_count} changed</span>
+                  )}
+                </div>
+                {driftReport.items.map((item, i) => (
+                  <div key={i} className={`drift-item drift-${item.category}`}>
+                    <div className="drift-item-header">
+                      <span className={`drift-category drift-cat-${item.category}`}>
+                        {item.category === "new" ? "+" : item.category === "stale" ? "-" : "~"}
+                      </span>
+                      <span className="method-badge" style={{
+                        color: item.method === "GET" ? "#4ec9b0" : item.method === "POST" ? "#dcdcaa" : item.method === "DELETE" ? "#f44747" : "#569cd6"
+                      }}>
+                        {item.method}
+                      </span>
+                      <span className="drift-route">{item.route}</span>
+                    </div>
+                    <div className="drift-item-name">{item.name}</div>
+                    {(item.changes ?? []).map((c, j) => (
+                      <div key={j} className="drift-change">{c}</div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </aside>

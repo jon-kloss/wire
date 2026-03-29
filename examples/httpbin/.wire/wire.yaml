@@ -3,4 +3,3 @@ version: 1
 active_env: dev
 default_templates:
 - json-api
-- auth

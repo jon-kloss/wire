@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use colored::Colorize;
 use std::path::Path;
 use wire_core::collection::{list_templates, load_collection, load_request_resolved};
+use wire_core::drift;
 use wire_core::history::{self, HistoryEntry};
 use wire_core::http::{execute, HttpClient};
 use wire_core::test::runner;
@@ -58,6 +59,23 @@ enum Commands {
     Template {
         #[command(subcommand)]
         action: TemplateAction,
+    },
+    /// Detect drift between code endpoints and collection requests
+    Drift {
+        /// Path to source project directory to scan
+        project_dir: String,
+
+        /// Path to .wire collection directory
+        #[arg(short = 'd', long, default_value = ".wire")]
+        wire_dir: String,
+
+        /// Auto-generate stub files for new endpoints
+        #[arg(long)]
+        fix: bool,
+
+        /// Output format: text or json
+        #[arg(short, long, default_value = "text")]
+        output: String,
     },
     /// View or manage request history
     History {
@@ -119,6 +137,15 @@ async fn main() {
                 eprintln!("{}: {e}", "Error".red().bold());
                 std::process::exit(1);
             }
+        }
+        Commands::Drift {
+            project_dir,
+            wire_dir,
+            fix,
+            output,
+        } => {
+            let exit_code = cmd_drift(&project_dir, &wire_dir, fix, &output);
+            std::process::exit(exit_code);
         }
         Commands::Template { action } => match action {
             TemplateAction::List { dir } => {
@@ -405,6 +432,143 @@ fn cmd_list(dir: &str) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn cmd_drift(project_dir: &str, wire_dir: &str, fix: bool, output: &str) -> i32 {
+    let project_path = Path::new(project_dir);
+    let wire_path = Path::new(wire_dir);
+
+    // Scan the codebase
+    let scan_result = match wire_core::scan::scan_project(project_path) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("{}: {e}", "Error".red().bold());
+            return 1;
+        }
+    };
+
+    // Load the collection
+    let collection = if wire_path.is_dir() {
+        match load_collection(wire_path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("{}: {e}", "Error".red().bold());
+                return 1;
+            }
+        }
+    } else {
+        eprintln!(
+            "{}: collection directory not found: {wire_dir}",
+            "Error".red().bold()
+        );
+        return 1;
+    };
+
+    let report = drift::compare(&scan_result.endpoints, &collection.requests);
+
+    if output == "json" {
+        match serde_json::to_string_pretty(&report) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                eprintln!("{}: {e}", "Error".red().bold());
+                return 1;
+            }
+        }
+    } else {
+        print_drift_report(&report);
+    }
+
+    // --fix: generate stubs for new endpoints
+    if fix && report.new_count > 0 {
+        let requests_dir = wire_path.join("requests");
+        let _ = std::fs::create_dir_all(&requests_dir);
+
+        for item in &report.items {
+            if item.category != drift::DriftCategory::New {
+                continue;
+            }
+            let slug = item
+                .name
+                .replace(|c: char| !c.is_alphanumeric() && c != '-', "-")
+                .to_lowercase();
+            let file_path = requests_dir.join(format!("{slug}.wire.yaml"));
+            if file_path.exists() {
+                continue;
+            }
+
+            // Find the endpoint to generate the stub
+            if let Some(ep) = scan_result
+                .endpoints
+                .iter()
+                .find(|ep| ep.method == item.method && ep.route == item.route)
+            {
+                let request = wire_core::scan::endpoint_to_request(ep);
+                match serde_yaml::to_string(&request) {
+                    Ok(yaml) => {
+                        if let Err(e) = std::fs::write(&file_path, yaml) {
+                            eprintln!(
+                                "  {} Failed to write {}: {e}",
+                                "!".yellow(),
+                                file_path.display()
+                            );
+                        } else {
+                            println!("  {} {}", "+".green().bold(), file_path.display());
+                        }
+                    }
+                    Err(e) => eprintln!("  {} Failed to serialize: {e}", "!".yellow()),
+                }
+            }
+        }
+    }
+
+    if report.has_drift() {
+        1
+    } else {
+        0
+    }
+}
+
+fn print_drift_report(report: &drift::DriftReport) {
+    if !report.has_drift() {
+        println!("{}", "No drift detected.".green().bold());
+        return;
+    }
+
+    for item in &report.items {
+        let (icon, color_label) = match item.category {
+            drift::DriftCategory::New => ("+".green().bold(), "NEW".green()),
+            drift::DriftCategory::Stale => ("-".red().bold(), "STALE".red()),
+            drift::DriftCategory::Changed => ("~".yellow().bold(), "CHANGED".yellow()),
+        };
+
+        let method_colored = match item.method.as_str() {
+            "GET" => item.method.green(),
+            "POST" => item.method.yellow(),
+            "PUT" => item.method.blue(),
+            "PATCH" => item.method.magenta(),
+            "DELETE" => item.method.red(),
+            _ => item.method.normal(),
+        };
+
+        println!(
+            "  {} [{}] {} {} — {}",
+            icon, color_label, method_colored, item.route, item.name
+        );
+
+        for change in &item.changes {
+            println!("      {} {}", "↳".dimmed(), change);
+        }
+        if let Some(ref path) = item.request_path {
+            println!("      {} {}", "file:".dimmed(), path.dimmed());
+        }
+    }
+
+    println!();
+    let summary = format!(
+        "{} new, {} stale, {} changed",
+        report.new_count, report.stale_count, report.changed_count
+    );
+    println!("{} {}", "Drift:".bold(), summary);
 }
 
 fn cmd_template_list(dir: &str) -> Result<(), Box<dyn std::error::Error>> {

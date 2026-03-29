@@ -1175,6 +1175,137 @@
   margin-bottom: 4px;
 }
 
+/* Drift panel */
+.drift-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drift-controls {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  flex-wrap: wrap;
+}
+
+.drift-input {
+  flex: 1;
+  min-width: 120px;
+  background: #3c3c3c;
+  color: #d4d4d4;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.drift-browse-btn,
+.drift-check-btn {
+  background: #3c3c3c;
+  color: #d4d4d4;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.drift-check-btn {
+  background: #007acc;
+  border-color: #007acc;
+}
+
+.drift-check-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.drift-browse-btn:hover {
+  background: #4c4c4c;
+}
+
+.drift-no-drift {
+  padding: 16px;
+  text-align: center;
+  color: #4ec9b0;
+  font-size: 13px;
+}
+
+.drift-summary {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+}
+
+.drift-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.drift-new {
+  background: #1e3a1e;
+  color: #4ec9b0;
+}
+
+.drift-stale {
+  background: #3a1e1e;
+  color: #f44747;
+}
+
+.drift-changed {
+  background: #3a3a1e;
+  color: #dcdcaa;
+}
+
+.drift-results {
+  overflow-y: auto;
+}
+
+.drift-item {
+  padding: 6px 10px;
+  border-bottom: 1px solid #2d2d30;
+}
+
+.drift-item-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.drift-category {
+  font-weight: 700;
+  width: 14px;
+  text-align: center;
+}
+
+.drift-cat-new { color: #4ec9b0; }
+.drift-cat-stale { color: #f44747; }
+.drift-cat-changed { color: #dcdcaa; }
+
+.drift-route {
+  color: #d4d4d4;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.drift-item-name {
+  color: #888;
+  font-size: 11px;
+  padding-left: 20px;
+}
+
+.drift-change {
+  color: #888;
+  font-size: 11px;
+  padding-left: 20px;
+  font-style: italic;
+}
+
 /* Tabs */
 .request-tabs {
   flex: 1;

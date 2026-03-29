@@ -81,6 +81,23 @@ export interface IpcScanResult {
   wire_dir: string | null;
 }
 
+/** Drift detection result */
+export interface DriftItem {
+  category: "new" | "stale" | "changed";
+  method: string;
+  route: string;
+  name: string;
+  changes: string[];
+  request_path: string | null;
+}
+
+export interface DriftReport {
+  items: DriftItem[];
+  new_count: number;
+  stale_count: number;
+  changed_count: number;
+}
+
 /** Collection info returned after opening a .wire/ directory */
 export interface IpcCollectionInfo {
   name: string;

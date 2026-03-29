@@ -5645,6 +5645,7 @@ dependencies = [
  "colored",
  "predicates",
  "serde_json",
+ "serde_yaml",
  "tempfile",
  "tokio",
  "wire-core",

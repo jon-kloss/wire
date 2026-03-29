@@ -483,6 +483,26 @@ pub async fn toggle_default_template(
 }
 
 #[tauri::command]
+pub async fn check_drift(
+    project_dir: String,
+    state: State<'_, AppState>,
+) -> Result<wire_core::drift::DriftReport, String> {
+    let scan_result =
+        wire_core::scan::scan_project(Path::new(&project_dir)).map_err(|e| e.to_string())?;
+
+    // Clone requests so we don't hold the lock during comparison
+    let requests = {
+        let col_guard = state.collection.lock().await;
+        let collection = col_guard
+            .as_ref()
+            .ok_or_else(|| "No collection open".to_string())?;
+        collection.requests.clone()
+    };
+
+    Ok(wire_core::drift::compare(&scan_result.endpoints, &requests))
+}
+
+#[tauri::command]
 pub async fn evaluate_tests(
     assertions: Vec<Assertion>,
     response: IpcResponse,

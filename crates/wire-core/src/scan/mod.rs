@@ -121,7 +121,7 @@ pub fn scan_and_create_collection(
 }
 
 /// Convert a DiscoveredEndpoint to a WireRequest.
-fn endpoint_to_request(endpoint: &DiscoveredEndpoint) -> WireRequest {
+pub fn endpoint_to_request(endpoint: &DiscoveredEndpoint) -> WireRequest {
     let mut headers = std::collections::HashMap::new();
     for (name, _) in &endpoint.headers {
         headers.insert(name.clone(), String::new());
