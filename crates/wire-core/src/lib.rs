@@ -50,6 +50,7 @@ params:
             headers: request.headers.clone(),
             params: request.params.clone(),
             body: Some(body.clone()),
+            extends: None,
             tests: Vec::new(),
             response_schema: Vec::new(),
         })

@@ -1003,6 +1003,27 @@
   background: #4c4c4c;
 }
 
+/* Template badge */
+.template-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: #252526;
+  border-bottom: 1px solid #3c3c3c;
+  font-size: 12px;
+}
+
+.template-badge-label {
+  color: #888;
+  font-style: italic;
+}
+
+.template-badge-name {
+  color: #007acc;
+  font-weight: 600;
+}
+
 /* Tabs */
 .request-tabs {
   flex: 1;

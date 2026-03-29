@@ -103,6 +103,8 @@ fn parse_express_routes(content: &str) -> Vec<DiscoveredEndpoint> {
             query_params,
             body_type,
             body_fields,
+            response_type: None,
+            response_fields: Vec::new(),
         });
     }
 
@@ -139,6 +141,8 @@ fn parse_express_routes(content: &str) -> Vec<DiscoveredEndpoint> {
                 query_params: Vec::new(),
                 body_type: None,
                 body_fields: Vec::new(),
+                response_type: None,
+                response_fields: Vec::new(),
             });
         }
     }

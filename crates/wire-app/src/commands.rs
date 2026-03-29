@@ -3,8 +3,8 @@ use crate::types::{IpcCollectionInfo, IpcRequestEntry, IpcResponse, IpcScanResul
 use std::path::Path;
 use tauri::State;
 use wire_core::collection::{
-    create_collection, load_collection, load_request, rename_collection, Assertion, Environment,
-    WireRequest,
+    create_collection, list_templates, load_collection, load_request, load_request_resolved,
+    rename_collection, Assertion, Environment, WireRequest,
 };
 use wire_core::history::{self, HistoryEntry};
 use wire_core::http::execute;
@@ -51,7 +51,13 @@ pub async fn send_request(
     env: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<IpcResponse, String> {
-    let request = load_request(Path::new(&file)).map_err(|e| e.to_string())?;
+    let col_path = state.collection_path.lock().await;
+    let request = if let Some(ref wire_dir) = *col_path {
+        load_request_resolved(Path::new(&file), wire_dir).map_err(|e| e.to_string())?
+    } else {
+        load_request(Path::new(&file)).map_err(|e| e.to_string())?
+    };
+    drop(col_path);
 
     let mut scope = VariableScope::new();
 
@@ -108,6 +114,18 @@ pub async fn send_raw_request(
     env: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<IpcResponse, String> {
+    // Resolve template if extends is set
+    let request = if request.extends.is_some() {
+        let col_path = state.collection_path.lock().await;
+        if let Some(ref wire_dir) = *col_path {
+            wire_core::collection::resolve_template(request, wire_dir).map_err(|e| e.to_string())?
+        } else {
+            request
+        }
+    } else {
+        request
+    };
+
     let mut scope = VariableScope::new();
 
     let collection_guard = state.collection.lock().await;
@@ -323,8 +341,18 @@ pub async fn save_environment(
 }
 
 #[tauri::command]
-pub async fn read_request(file: String) -> Result<WireRequest, String> {
-    load_request(Path::new(&file)).map_err(|e| e.to_string())
+pub async fn read_request(file: String, state: State<'_, AppState>) -> Result<WireRequest, String> {
+    let col_path = state.collection_path.lock().await;
+    if let Some(ref wire_dir) = *col_path {
+        load_request_resolved(Path::new(&file), wire_dir).map_err(|e| e.to_string())
+    } else {
+        load_request(Path::new(&file)).map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn list_templates_cmd(wire_dir: String) -> Result<Vec<String>, String> {
+    list_templates(Path::new(&wire_dir)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

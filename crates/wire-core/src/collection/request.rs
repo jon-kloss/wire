@@ -15,6 +15,8 @@ pub struct WireRequest {
     pub params: HashMap<String, String>,
     #[serde(default)]
     pub body: Option<Body>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extends: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tests: Vec<Assertion>,
     /// Expected response fields from codebase scan (field_name, type_hint)

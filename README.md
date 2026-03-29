@@ -23,6 +23,8 @@ Wire stores requests as human-readable YAML files that live in your repo alongsi
 - Environment switching (dev/staging/prod)
 - Monaco editor for request body with JSON syntax highlighting
 - Response viewer with body, headers, status code, and timing
+- **Request templates** — define shared headers, auth, and base URLs in `.wire/templates/` and inherit via `extends`
+- **Declarative tests** — YAML-based test assertions with CLI runner for CI integration
 - Request history persisted locally as JSONL
 - CLI tool for scripting and CI workflows
 
@@ -46,6 +48,17 @@ params:
   include: profile
 ```
 
+Requests can inherit from templates via `extends`:
+
+```yaml
+name: Get Users
+method: GET
+url: "{{base_url}}/api/users"
+extends: authenticated
+```
+
+Templates live in `.wire/templates/` and use the same format. Headers merge additively, request fields override template fields. Templates can chain (max 3 levels).
+
 Collections are organized as folder trees:
 
 ```
@@ -54,6 +67,8 @@ Collections are organized as folder trees:
 ├── envs/
 │   ├── dev.yaml
 │   └── prod.yaml
+├── templates/
+│   └── authenticated.wire.yaml
 └── requests/
     ├── auth/
     │   └── login.wire.yaml
@@ -112,6 +127,12 @@ wire send .wire/requests/auth/login.wire.yaml -d .wire -e dev
 
 # List collection contents
 wire list .wire
+
+# Run tests
+wire test .wire/requests/ -d .wire -e dev
+
+# List available templates
+wire template list .wire
 
 # View request history
 wire history

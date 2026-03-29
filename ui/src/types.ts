@@ -50,6 +50,7 @@ export interface WireRequest {
   headers: Record<string, string>;
   params: Record<string, string>;
   body: WireBody | null;
+  extends?: string;
   tests?: Assertion[];
   response_schema?: [string, string][];
 }

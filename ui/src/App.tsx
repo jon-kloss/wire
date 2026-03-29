@@ -168,6 +168,7 @@ function App() {
   const [selectedRequestName, setSelectedRequestName] = useState<string | null>(
     null
   );
+  const [extendsTemplate, setExtendsTemplate] = useState<string | null>(null);
 
   // Sidebar state
   const [sidebarTab, setSidebarTab] = useState<"collections" | "activity">(
@@ -250,6 +251,7 @@ function App() {
     setQueryParams([]);
     setSelectedRequestPath(null);
     setSelectedRequestName(null);
+    setExtendsTemplate(null);
     setResponse(null);
     setError(null);
     setTestResults([]);
@@ -326,6 +328,7 @@ function App() {
     setMethod("GET");
     setSelectedRequestPath(null);
     setSelectedRequestName(null);
+    setExtendsTemplate(null);
     setResponse(null);
     setError(null);
   }, [showPrompt]);
@@ -540,6 +543,7 @@ function App() {
         headers,
         params,
         body,
+        extends: extendsTemplate ?? undefined,
         tests: currentAssertions.length > 0 ? currentAssertions : undefined,
       };
 
@@ -561,7 +565,7 @@ function App() {
     } catch (err) {
       setError(String(err));
     }
-  }, [method, url, headersText, bodyText, queryParams, currentAssertions, activeCollectionPath, selectedRequestPath, selectedRequestName, showPrompt]);
+  }, [method, url, headersText, bodyText, queryParams, currentAssertions, activeCollectionPath, selectedRequestPath, selectedRequestName, extendsTemplate, showPrompt]);
 
   const handleSelectRequest = useCallback(
     async (entry: IpcRequestEntry) => {
@@ -609,6 +613,7 @@ function App() {
 
         setSelectedRequestPath(entry.path);
         setSelectedRequestName(req.name);
+        setExtendsTemplate(req.extends ?? null);
         setResponse(null);
         setError(null);
         setTestResults([]);
@@ -1080,6 +1085,7 @@ function App() {
                       setUrl(entry.url);
                       setSelectedRequestPath(null);
                       setSelectedRequestName(null);
+                      setExtendsTemplate(null);
                       setResponse(null);
                       setError(null);
                     }}
@@ -1165,6 +1171,12 @@ function App() {
             Save
           </button>
         </div>
+        {extendsTemplate && (
+          <div className="template-badge">
+            <span className="template-badge-label">extends</span>
+            <span className="template-badge-name">{extendsTemplate}</span>
+          </div>
+        )}
         <div className="request-tabs">
           <div className="tabs">
             <button

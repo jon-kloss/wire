@@ -116,6 +116,7 @@ mod tests {
             headers: HashMap::new(),
             params: HashMap::new(),
             body: None,
+            extends: None,
             tests: Vec::new(),
             response_schema: Vec::new(),
         }
@@ -144,6 +145,7 @@ mod tests {
             headers: HashMap::new(),
             params: HashMap::new(),
             body: None,
+            extends: None,
             tests: Vec::new(),
             response_schema: Vec::new(),
         };
@@ -180,6 +182,7 @@ mod tests {
                 body_type: BodyType::Json,
                 content: serde_json::json!({"name": "Wire", "version": "0.1"}),
             }),
+            extends: None,
             tests: Vec::new(),
             response_schema: Vec::new(),
         };
@@ -204,6 +207,7 @@ mod tests {
             headers: HashMap::new(),
             params,
             body: None,
+            extends: None,
             tests: Vec::new(),
             response_schema: Vec::new(),
         };

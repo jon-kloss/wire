@@ -66,6 +66,13 @@ pub fn load_request(path: &Path) -> Result<WireRequest, WireError> {
     Ok(request)
 }
 
+/// Load a single .wire.yaml request file and resolve any `extends` template.
+/// The `wire_dir` is the .wire/ collection root (used to find templates/).
+pub fn load_request_resolved(path: &Path, wire_dir: &Path) -> Result<WireRequest, WireError> {
+    let request = load_request(path)?;
+    crate::collection::template::resolve_template(request, wire_dir)
+}
+
 /// Load a full .wire/ collection directory.
 ///
 /// Expected structure:

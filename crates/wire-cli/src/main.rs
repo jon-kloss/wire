@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use std::path::Path;
-use wire_core::collection::{load_collection, load_request};
+use wire_core::collection::{list_templates, load_collection, load_request_resolved};
 use wire_core::history::{self, HistoryEntry};
 use wire_core::http::{execute, HttpClient};
 use wire_core::test::runner;
@@ -54,6 +54,11 @@ enum Commands {
         #[arg(short, long, default_value = "text")]
         output: String,
     },
+    /// Manage request templates
+    Template {
+        #[command(subcommand)]
+        action: TemplateAction,
+    },
     /// View or manage request history
     History {
         #[command(subcommand)]
@@ -66,6 +71,16 @@ enum Commands {
         /// Path to .wire collection directory
         #[arg(short = 'd', long, default_value = ".wire")]
         wire_dir: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum TemplateAction {
+    /// List all available templates
+    List {
+        /// Path to .wire directory
+        #[arg(default_value = ".wire")]
+        dir: String,
     },
 }
 
@@ -105,6 +120,14 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        Commands::Template { action } => match action {
+            TemplateAction::List { dir } => {
+                if let Err(e) = cmd_template_list(&dir) {
+                    eprintln!("{}: {e}", "Error".red().bold());
+                    std::process::exit(1);
+                }
+            }
+        },
         Commands::History {
             action,
             limit,
@@ -123,8 +146,8 @@ async fn cmd_send(
     env_name: Option<&str>,
     wire_dir: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Load the request
-    let request = load_request(Path::new(file))?;
+    // Load the request (with template resolution)
+    let request = load_request_resolved(Path::new(file), Path::new(wire_dir))?;
 
     // Build variable scope
     let mut scope = VariableScope::new();
@@ -380,6 +403,33 @@ fn cmd_list(dir: &str) -> Result<(), Box<dyn std::error::Error>> {
             println!("  {} {} — {}", method_colored, req.name, relative.dimmed());
         }
     }
+
+    Ok(())
+}
+
+fn cmd_template_list(dir: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let wire_path = Path::new(dir);
+    if !wire_path.is_dir() {
+        return Err(format!("Directory not found: {dir}").into());
+    }
+
+    let names = list_templates(wire_path)?;
+
+    if names.is_empty() {
+        println!("{}", "No templates found.".dimmed());
+        println!(
+            "  {}",
+            "Add templates in .wire/templates/<name>.wire.yaml".dimmed()
+        );
+        return Ok(());
+    }
+
+    println!("{}", "Templates:".bold());
+    for name in &names {
+        println!("  {}", name.cyan());
+    }
+    println!();
+    println!("{}", format!("{} template(s)", names.len()).dimmed());
 
     Ok(())
 }

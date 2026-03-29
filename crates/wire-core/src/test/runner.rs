@@ -1,4 +1,4 @@
-use crate::collection::{load_collection, load_request, WireRequest};
+use crate::collection::{load_collection, load_request, load_request_resolved, WireRequest};
 use crate::http::{execute, HttpClient};
 use crate::test::{evaluate_assertions, TestResult};
 use crate::variables::VariableScope;
@@ -72,7 +72,11 @@ pub async fn run_tests(
     let mut results = Vec::new();
 
     for file_path in files {
-        let request = match load_request(&file_path) {
+        let request = match if let Some(wd) = wire_dir {
+            load_request_resolved(&file_path, wd)
+        } else {
+            load_request(&file_path)
+        } {
             Ok(r) => r,
             Err(e) => {
                 results.push(RequestTestResult {
