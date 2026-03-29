@@ -9,6 +9,8 @@ import type {
   HistoryEntry,
   WireRequest,
   WireBody,
+  Assertion,
+  TestResult,
 } from "./types";
 import type { TreeNode } from "./utils";
 import {
@@ -106,6 +108,8 @@ function App() {
   // Response state
   const [response, setResponse] = useState<IpcResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [testResults, setTestResults] = useState<TestResult[]>([]);
+  const [currentAssertions, setCurrentAssertions] = useState<Assertion[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [responseTab, setResponseTab] = useState<"body" | "headers">("body");
 
@@ -213,6 +217,8 @@ function App() {
     setSelectedRequestName(null);
     setResponse(null);
     setError(null);
+    setTestResults([]);
+    setCurrentAssertions([]);
   }, []);
 
   const handleOpenCollection = useCallback(async () => {
@@ -568,6 +574,8 @@ function App() {
         setSelectedRequestName(req.name);
         setResponse(null);
         setError(null);
+        setTestResults([]);
+        setCurrentAssertions(req.tests ?? []);
       } catch (err) {
         setError(String(err));
       }
@@ -625,6 +633,19 @@ function App() {
 
       setResponse(result);
       refreshHistory();
+
+      // Evaluate test assertions if any exist
+      if (currentAssertions.length > 0) {
+        try {
+          const results = await invoke<TestResult[]>("evaluate_tests", {
+            assertions: currentAssertions,
+            response: result,
+          });
+          setTestResults(results);
+        } catch {
+          // Test evaluation is non-critical
+        }
+      }
     } catch (err) {
       setError(String(err));
     } finally {
@@ -1062,6 +1083,18 @@ function App() {
               onClick={() => setActiveTab("tests")}
             >
               Tests
+              {testResults.length > 0 && (
+                <span
+                  className={`tab-badge ${testResults.every((r) => r.passed) ? "tab-badge-pass" : "tab-badge-fail"}`}
+                >
+                  {testResults.filter((r) => r.passed).length}/{testResults.length}
+                </span>
+              )}
+              {testResults.length === 0 && currentAssertions.length > 0 && (
+                <span className="tab-badge tab-badge-pending">
+                  {currentAssertions.length}
+                </span>
+              )}
             </button>
             <button
               className={`tab ${activeTab === "pre-run" ? "active" : ""}`}
@@ -1169,8 +1202,56 @@ function App() {
               </Suspense>
             )}
             {activeTab === "tests" && (
-              <div className="tab-placeholder">
-                <p className="placeholder">Tests</p>
+              <div className="test-results-panel">
+                {currentAssertions.length === 0 && testResults.length === 0 && (
+                  <div className="tab-placeholder">
+                    <p className="placeholder">
+                      No tests defined. Add a tests: section to your .wire.yaml file.
+                    </p>
+                  </div>
+                )}
+                {currentAssertions.length > 0 && testResults.length === 0 && (
+                  <div className="tab-placeholder">
+                    <p className="placeholder">
+                      {currentAssertions.length} assertion{currentAssertions.length !== 1 ? "s" : ""} defined. Send the request to run tests.
+                    </p>
+                  </div>
+                )}
+                {testResults.length > 0 && (
+                  <div className="test-results-list">
+                    <h3 className="test-results-title">
+                      Test Results
+                      <span className="test-results-summary">
+                        <span className="test-pass-count">
+                          {testResults.filter((r) => r.passed).length} passed
+                        </span>
+                        {testResults.some((r) => !r.passed) && (
+                          <span className="test-fail-count">
+                            {testResults.filter((r) => !r.passed).length} failed
+                          </span>
+                        )}
+                      </span>
+                    </h3>
+                    {testResults.map((result, i) => (
+                      <div
+                        key={i}
+                        className={`test-result-row ${result.passed ? "passed" : "failed"}`}
+                      >
+                        <span className="test-result-icon">
+                          {result.passed ? "\u2713" : "\u2717"}
+                        </span>
+                        <span className="test-result-field">{result.field}</span>
+                        <span className="test-result-operator">{result.operator}</span>
+                        <span className="test-result-expected">{result.expected}</span>
+                        {!result.passed && (
+                          <span className="test-result-actual">
+                            got {result.actual}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             {activeTab === "pre-run" && (

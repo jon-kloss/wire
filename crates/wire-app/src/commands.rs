@@ -3,7 +3,8 @@ use crate::types::{IpcCollectionInfo, IpcRequestEntry, IpcResponse, IpcScanResul
 use std::path::Path;
 use tauri::State;
 use wire_core::collection::{
-    create_collection, load_collection, load_request, rename_collection, Environment, WireRequest,
+    create_collection, load_collection, load_request, rename_collection, Assertion, Environment,
+    WireRequest,
 };
 use wire_core::history::{self, HistoryEntry};
 use wire_core::http::execute;
@@ -340,4 +341,25 @@ pub async fn save_request(path: String, request: WireRequest) -> Result<(), Stri
     std::fs::write(file_path, yaml).map_err(|e| format!("Failed to write file: {e}"))?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn evaluate_tests(
+    assertions: Vec<Assertion>,
+    response: IpcResponse,
+) -> Result<Vec<wire_core::test::TestResult>, String> {
+    // Convert IpcResponse back to WireResponse for the evaluation engine
+    let wire_response = wire_core::http::WireResponse {
+        status: response.status,
+        status_text: response.status_text,
+        headers: response.headers,
+        body: response.body,
+        elapsed: std::time::Duration::from_millis(response.elapsed_ms),
+        size_bytes: response.size_bytes,
+    };
+
+    Ok(wire_core::test::evaluate_assertions(
+        &assertions,
+        &wire_response,
+    ))
 }

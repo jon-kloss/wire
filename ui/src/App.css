@@ -519,6 +519,115 @@
   border-bottom-color: #007acc;
 }
 
+/* Test results */
+.test-results-panel {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.test-results-list {
+  padding: 16px 20px;
+}
+
+.test-results-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: #d4d4d4;
+  margin: 0 0 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.test-results-summary {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.test-pass-count {
+  color: #4ec9b0;
+}
+
+.test-fail-count {
+  color: #f44747;
+}
+
+.test-result-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+}
+
+.test-result-row.passed {
+  color: #d4d4d4;
+}
+
+.test-result-row.failed {
+  background: rgba(244, 71, 71, 0.08);
+}
+
+.test-result-icon {
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.test-result-row.passed .test-result-icon {
+  color: #4ec9b0;
+}
+
+.test-result-row.failed .test-result-icon {
+  color: #f44747;
+}
+
+.test-result-field {
+  color: #9cdcfe;
+}
+
+.test-result-operator {
+  color: #666;
+}
+
+.test-result-expected {
+  color: #d4d4d4;
+}
+
+.test-result-actual {
+  color: #f44747;
+  margin-left: auto;
+}
+
+/* Tab badges */
+.tab-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  margin-left: 4px;
+  font-weight: 600;
+}
+
+.tab-badge-pass {
+  background: rgba(78, 201, 176, 0.2);
+  color: #4ec9b0;
+}
+
+.tab-badge-fail {
+  background: rgba(244, 71, 71, 0.2);
+  color: #f44747;
+}
+
+.tab-badge-pending {
+  background: rgba(136, 136, 136, 0.2);
+  color: #888;
+}
+
 .tab-placeholder {
   display: flex;
   align-items: center;

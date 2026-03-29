@@ -14,6 +14,34 @@ export interface WireBody {
   content: unknown;
 }
 
+/** A test assertion defined in a .wire.yaml file */
+export interface Assertion {
+  field: string;
+  equals?: unknown;
+  not_equals?: unknown;
+  contains?: string;
+  starts_with?: string;
+  ends_with?: string;
+  less_than?: number;
+  greater_than?: number;
+  is_array?: boolean;
+  is_object?: boolean;
+  is_string?: boolean;
+  is_number?: boolean;
+  exists?: boolean;
+  body_contains?: string;
+  body_matches?: string;
+}
+
+/** Result of evaluating a test assertion */
+export interface TestResult {
+  field: string;
+  operator: string;
+  passed: boolean;
+  expected: string;
+  actual: string;
+}
+
 /** Full wire request (matches Rust WireRequest) */
 export interface WireRequest {
   name: string;
@@ -22,6 +50,7 @@ export interface WireRequest {
   headers: Record<string, string>;
   params: Record<string, string>;
   body: WireBody | null;
+  tests?: Assertion[];
 }
 
 /** A history entry from the Rust backend */
