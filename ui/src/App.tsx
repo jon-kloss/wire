@@ -205,6 +205,7 @@ function App() {
   const [chainSteps, setChainSteps] = useState<ChainStepDef[]>([]);
   const [chainResult, setChainResult] = useState<ChainResult | null>(null);
   const [chainLoading, setChainLoading] = useState(false);
+  const [expandedChainSteps, setExpandedChainSteps] = useState<Set<number>>(new Set());
 
   // History state
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -752,6 +753,7 @@ function App() {
 
     setChainLoading(true);
     setChainResult(null);
+    setExpandedChainSteps(new Set());
     setError(null);
 
     try {
@@ -2175,9 +2177,23 @@ function App() {
                 — {chainResult.total_elapsed_ms}ms
               </span>
             </div>
-            {chainResult.steps.map((step) => (
+            {chainResult.steps.map((step) => {
+              const isExpanded = expandedChainSteps.has(step.step_index);
+              return (
               <div key={step.step_index} className={`chain-step ${step.passed ? "chain-step-pass" : "chain-step-fail"}`}>
-                <div className="chain-step-header">
+                <div
+                  className="chain-step-header"
+                  onClick={() => {
+                    setExpandedChainSteps((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(step.step_index)) next.delete(step.step_index);
+                      else next.add(step.step_index);
+                      return next;
+                    });
+                  }}
+                  style={{ cursor: "pointer" }}
+                >
+                  <span className="chain-step-toggle">{isExpanded ? "\u25BE" : "\u25B8"}</span>
                   <span className={`chain-step-icon ${step.passed ? "pass" : "fail"}`}>
                     {step.passed ? "\u2713" : "\u2717"}
                   </span>
@@ -2205,8 +2221,54 @@ function App() {
                 {step.error && (
                   <div className="chain-step-error">{step.error}</div>
                 )}
+                {isExpanded && (
+                  <div className="chain-step-detail">
+                    <div className="chain-detail-section">
+                      <div className="chain-detail-label">Request</div>
+                      <div className="chain-detail-row">
+                        <span className="chain-detail-method" style={{ color: METHOD_COLORS[step.request_method] ?? "#d4d4d4" }}>
+                          {step.request_method}
+                        </span>
+                        <span className="chain-detail-url">{step.request_url}</span>
+                      </div>
+                      {Object.keys(step.request_headers).length > 0 && (
+                        <div className="chain-detail-headers">
+                          {Object.entries(step.request_headers).map(([k, v]) => (
+                            <div key={k} className="chain-detail-header">
+                              <span className="header-key">{k}:</span> <span className="header-value">{v}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="chain-detail-section">
+                      <div className="chain-detail-label">
+                        Response {step.status > 0 && <span className={step.status < 300 ? "status-ok" : "status-err"}>{step.status} {step.status_text}</span>}
+                      </div>
+                      {Object.keys(step.response_headers).length > 0 && (
+                        <div className="chain-detail-headers">
+                          {Object.entries(step.response_headers).map(([k, v]) => (
+                            <div key={k} className="chain-detail-header">
+                              <span className="header-key">{k}:</span> <span className="header-value">{v}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {step.response_body && (
+                        <pre className="chain-detail-body">{(() => {
+                          try {
+                            return JSON.stringify(JSON.parse(step.response_body), null, 2);
+                          } catch {
+                            return step.response_body;
+                          }
+                        })()}</pre>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-            ))}
+              );
+            })}
             {chainResult.error && !chainResult.success && (
               <div className="chain-error">{chainResult.error}</div>
             )}

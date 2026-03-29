@@ -112,10 +112,16 @@ export interface ChainStepResult {
   request_name: string;
   request_path: string;
   status: number;
+  status_text: string;
   elapsed_ms: number;
   extracted: Record<string, string>;
   passed: boolean;
   error: string | null;
+  request_method: string;
+  request_url: string;
+  request_headers: Record<string, string>;
+  response_headers: Record<string, string>;
+  response_body: string;
 }
 
 /** Result of executing an entire chain */

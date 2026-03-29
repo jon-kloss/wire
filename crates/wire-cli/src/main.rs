@@ -815,6 +815,50 @@ async fn cmd_chain_run(file: &str, env_name: Option<&str>, wire_dir: &str) -> i3
             step.elapsed_ms,
         );
 
+        // Show request details
+        if !step.request_method.is_empty() {
+            let method_colored = match step.request_method.as_str() {
+                "GET" => step.request_method.green(),
+                "POST" => step.request_method.yellow(),
+                "PUT" => step.request_method.blue(),
+                "PATCH" => step.request_method.magenta(),
+                "DELETE" => step.request_method.red(),
+                _ => step.request_method.normal(),
+            };
+            println!(
+                "      {} {} {}",
+                "→".dimmed(),
+                method_colored,
+                step.request_url
+            );
+        }
+
+        // Show response body preview
+        if !step.response_body.is_empty() {
+            let preview =
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&step.response_body) {
+                    let pretty =
+                        serde_json::to_string_pretty(&json).unwrap_or(step.response_body.clone());
+                    if pretty.lines().count() > 6 {
+                        pretty.lines().take(6).collect::<Vec<_>>().join("\n") + "\n      ..."
+                    } else {
+                        pretty
+                    }
+                } else if step.response_body.len() > 200 {
+                    format!("{}...", &step.response_body[..197])
+                } else {
+                    step.response_body.clone()
+                };
+            for (i, line) in preview.lines().enumerate() {
+                if i == 0 {
+                    println!("      {} {}", "←".dimmed(), line.dimmed());
+                } else {
+                    println!("        {}", line.dimmed());
+                }
+            }
+        }
+
+        // Show extracted variables
         if !step.extracted.is_empty() {
             for (var, val) in &step.extracted {
                 let display_val = if val.len() > 60 {
@@ -834,6 +878,8 @@ async fn cmd_chain_run(file: &str, env_name: Option<&str>, wire_dir: &str) -> i3
         if let Some(ref err) = step.error {
             println!("      {} {}", "ERROR:".red().bold(), err);
         }
+
+        println!();
     }
 
     println!();

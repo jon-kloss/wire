@@ -1740,6 +1740,12 @@
   font-size: 12px;
 }
 
+.chain-step-toggle {
+  color: #808080;
+  font-size: 11px;
+  min-width: 12px;
+}
+
 .chain-error {
   margin-top: 8px;
   padding: 8px 12px;
@@ -1747,4 +1753,71 @@
   border-radius: 4px;
   color: #f44747;
   font-size: 13px;
+}
+
+/* Chain step detail (expanded view) */
+.chain-step-detail {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #333;
+}
+
+.chain-detail-section {
+  margin-bottom: 10px;
+}
+
+.chain-detail-label {
+  color: #808080;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.chain-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.chain-detail-method {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.chain-detail-url {
+  color: #d4d4d4;
+  font-size: 12px;
+  font-family: monospace;
+  word-break: break-all;
+}
+
+.chain-detail-headers {
+  font-size: 12px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: #1e1e1e;
+  border-radius: 3px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.chain-detail-header {
+  line-height: 1.6;
+}
+
+.chain-detail-body {
+  font-size: 12px;
+  font-family: monospace;
+  color: #d4d4d4;
+  background: #1e1e1e;
+  border-radius: 3px;
+  padding: 8px;
+  margin-top: 4px;
+  max-height: 300px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }

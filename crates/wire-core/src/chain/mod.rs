@@ -34,10 +34,18 @@ pub struct ChainStepResult {
     pub request_name: String,
     pub request_path: String,
     pub status: u16,
+    pub status_text: String,
     pub elapsed_ms: u64,
     pub extracted: HashMap<String, String>,
     pub passed: bool,
     pub error: Option<String>,
+    /// The request that was sent (method, url, headers)
+    pub request_method: String,
+    pub request_url: String,
+    pub request_headers: HashMap<String, String>,
+    /// The response received
+    pub response_headers: HashMap<String, String>,
+    pub response_body: String,
 }
 
 /// Result of executing an entire chain.
@@ -79,15 +87,10 @@ pub async fn execute_chain(
         let request = match load_request(&request_path) {
             Ok(r) => r,
             Err(e) => {
+                let result = empty_step_result(idx, &step.run, &request_path);
                 let result = ChainStepResult {
-                    step_index: idx,
-                    request_name: step.run.clone(),
-                    request_path: request_path.to_string_lossy().to_string(),
-                    status: 0,
-                    elapsed_ms: 0,
-                    extracted: HashMap::new(),
-                    passed: false,
                     error: Some(format!("Failed to load request '{}': {e}", step.run)),
+                    ..result
                 };
                 step_results.push(result);
                 return ChainResult {
@@ -103,15 +106,13 @@ pub async fn execute_chain(
         let response = match execute(client, &request, &scope).await {
             Ok(r) => r,
             Err(e) => {
+                let result = empty_step_result(idx, &request.name, &request_path);
                 let result = ChainStepResult {
-                    step_index: idx,
-                    request_name: request.name.clone(),
-                    request_path: request_path.to_string_lossy().to_string(),
-                    status: 0,
-                    elapsed_ms: 0,
-                    extracted: HashMap::new(),
-                    passed: false,
+                    request_method: request.method.clone(),
+                    request_url: request.url.clone(),
+                    request_headers: request.headers.clone(),
                     error: Some(format!("Request failed: {e}")),
+                    ..result
                 };
                 step_results.push(result);
                 return ChainResult {
@@ -123,18 +124,36 @@ pub async fn execute_chain(
             }
         };
 
-        // Check for non-2xx status (3xx, 4xx, 5xx all halt the chain)
-        if response.status >= 300 {
-            let result = ChainStepResult {
+        // Build step result with full request/response data
+        let build_result = |extracted: HashMap<String, String>,
+                            passed: bool,
+                            error: Option<String>|
+         -> ChainStepResult {
+            ChainStepResult {
                 step_index: idx,
                 request_name: request.name.clone(),
                 request_path: request_path.to_string_lossy().to_string(),
                 status: response.status,
+                status_text: response.status_text.clone(),
                 elapsed_ms: response.elapsed.as_millis() as u64,
-                extracted: HashMap::new(),
-                passed: false,
-                error: Some(format!("HTTP {} {}", response.status, response.status_text)),
-            };
+                extracted,
+                passed,
+                error,
+                request_method: request.method.clone(),
+                request_url: request.url.clone(),
+                request_headers: request.headers.clone(),
+                response_headers: response.headers.clone(),
+                response_body: response.body.clone(),
+            }
+        };
+
+        // Check for non-2xx status (3xx, 4xx, 5xx all halt the chain)
+        if response.status >= 300 {
+            let result = build_result(
+                HashMap::new(),
+                false,
+                Some(format!("HTTP {} {}", response.status, response.status_text)),
+            );
             step_results.push(result);
             return ChainResult {
                 success: false,
@@ -154,16 +173,11 @@ pub async fn execute_chain(
             match extract_from_response(&response, &step.extract) {
                 Ok(vars) => vars,
                 Err(e) => {
-                    let result = ChainStepResult {
-                        step_index: idx,
-                        request_name: request.name.clone(),
-                        request_path: request_path.to_string_lossy().to_string(),
-                        status: response.status,
-                        elapsed_ms: response.elapsed.as_millis() as u64,
-                        extracted: HashMap::new(),
-                        passed: false,
-                        error: Some(format!("Extraction failed: {e}")),
-                    };
+                    let result = build_result(
+                        HashMap::new(),
+                        false,
+                        Some(format!("Extraction failed: {e}")),
+                    );
                     step_results.push(result);
                     return ChainResult {
                         success: false,
@@ -186,17 +200,7 @@ pub async fn execute_chain(
             scope.push_layer(extracted.clone());
         }
 
-        let result = ChainStepResult {
-            step_index: idx,
-            request_name: request.name.clone(),
-            request_path: request_path.to_string_lossy().to_string(),
-            status: response.status,
-            elapsed_ms: response.elapsed.as_millis() as u64,
-            extracted,
-            passed: true,
-            error: None,
-        };
-        step_results.push(result);
+        step_results.push(build_result(extracted, true, None));
     }
 
     ChainResult {
@@ -204,6 +208,26 @@ pub async fn execute_chain(
         total_elapsed_ms: chain_start.elapsed().as_millis() as u64,
         error: None,
         steps: step_results,
+    }
+}
+
+/// Create an empty step result for error cases before a response is available.
+fn empty_step_result(idx: usize, name: &str, path: &Path) -> ChainStepResult {
+    ChainStepResult {
+        step_index: idx,
+        request_name: name.to_string(),
+        request_path: path.to_string_lossy().to_string(),
+        status: 0,
+        status_text: String::new(),
+        elapsed_ms: 0,
+        extracted: HashMap::new(),
+        passed: false,
+        error: None,
+        request_method: String::new(),
+        request_url: String::new(),
+        request_headers: HashMap::new(),
+        response_headers: HashMap::new(),
+        response_body: String::new(),
     }
 }
 
