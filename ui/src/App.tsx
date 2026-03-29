@@ -13,6 +13,7 @@ import type {
   TestResult,
   DriftReport,
   ChainResult,
+  ChainStepDef,
 } from "./types";
 import type { TreeNode } from "./utils";
 import {
@@ -201,7 +202,7 @@ function App() {
   const [driftProjectDir, setDriftProjectDir] = useState("");
 
   // Chain state
-  const [hasChain, setHasChain] = useState(false);
+  const [chainSteps, setChainSteps] = useState<ChainStepDef[]>([]);
   const [chainResult, setChainResult] = useState<ChainResult | null>(null);
   const [chainLoading, setChainLoading] = useState(false);
 
@@ -667,7 +668,7 @@ function App() {
         setTestResults([]);
         setCurrentAssertions(req.tests ?? []);
         setResponseSchema(req.response_schema ?? []);
-        setHasChain((req.chain ?? []).length > 0);
+        setChainSteps(req.chain ?? []);
         setChainResult(null);
       } catch (err) {
         setError(String(err));
@@ -747,7 +748,7 @@ function App() {
   };
 
   const handleRunChain = async () => {
-    if (!selectedRequestPath || !hasChain) return;
+    if (!selectedRequestPath || chainSteps.length === 0) return;
 
     setChainLoading(true);
     setChainResult(null);
@@ -1623,9 +1624,9 @@ function App() {
           <button className="send-btn" onClick={handleSend} disabled={loading || chainLoading}>
             {loading ? "Sending..." : "Send"}
           </button>
-          {hasChain && (
+          {chainSteps.length > 0 && (
             <button className="chain-btn" onClick={handleRunChain} disabled={loading || chainLoading}>
-              {chainLoading ? "Running..." : "Run Chain"}
+              {chainLoading ? "Running..." : `Run Chain (${chainSteps.length})`}
             </button>
           )}
           <button className="save-btn" onClick={handleSaveRequest}>
@@ -2140,9 +2141,26 @@ function App() {
           </>
         )}
 
-        {!response && !error && !chainResult && (
+        {!response && !error && !chainResult && chainSteps.length === 0 && (
           <div className="panel-body">
             <p className="placeholder">Send a request to see the response</p>
+          </div>
+        )}
+
+        {chainSteps.length > 0 && !chainResult && !chainLoading && (
+          <div className="chain-preview">
+            <div className="chain-preview-header">Chain Steps</div>
+            {chainSteps.map((step, i) => (
+              <div key={i} className="chain-preview-step">
+                <span className="chain-preview-num">{i + 1}</span>
+                <span className="chain-preview-run">{step.run}</span>
+                {step.extract && Object.keys(step.extract).length > 0 && (
+                  <span className="chain-preview-extract">
+                    {"\u2192"} {Object.keys(step.extract).join(", ")}
+                  </span>
+                )}
+              </div>
+            ))}
           </div>
         )}
 

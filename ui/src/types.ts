@@ -53,6 +53,14 @@ export interface WireRequest {
   extends?: string;
   tests?: Assertion[];
   response_schema?: [string, string][];
+  chain?: ChainStepDef[];
+}
+
+/** A chain step definition from a .wire.yaml file */
+export interface ChainStepDef {
+  run: string;
+  extract?: Record<string, string>;
+  persist?: boolean;
 }
 
 /** A history entry from the Rust backend */

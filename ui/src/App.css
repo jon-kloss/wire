@@ -1561,6 +1561,55 @@
   cursor: not-allowed;
 }
 
+/* Chain step preview */
+.chain-preview {
+  padding: 12px 16px;
+}
+
+.chain-preview-header {
+  color: #d4d4d4;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #333;
+}
+
+.chain-preview-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  margin-bottom: 2px;
+}
+
+.chain-preview-step:hover {
+  background: #2a2a2a;
+}
+
+.chain-preview-num {
+  color: #808080;
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 18px;
+  text-align: center;
+}
+
+.chain-preview-run {
+  color: #9cdcfe;
+  font-size: 13px;
+  font-family: monospace;
+}
+
+.chain-preview-extract {
+  color: #808080;
+  font-size: 12px;
+  margin-left: auto;
+}
+
 /* Chain results */
 .chain-results {
   padding: 12px 16px;

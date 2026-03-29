@@ -769,9 +769,28 @@ async fn cmd_chain_run(file: &str, env_name: Option<&str>, wire_dir: &str) -> i3
     );
     println!();
 
+    // Show chain steps before running
+    println!("{}", "Steps:".dimmed());
+    for (i, step) in request.chain.iter().enumerate() {
+        let extracts = if step.extract.is_empty() {
+            String::new()
+        } else {
+            let vars: Vec<&str> = step.extract.keys().map(|s| s.as_str()).collect();
+            format!(" {} {}", "\u{2192}".dimmed(), vars.join(", ").dimmed())
+        };
+        println!(
+            "  {} {}{}",
+            format!("{}.", i + 1).dimmed(),
+            step.run.cyan(),
+            extracts
+        );
+    }
+    println!();
+
     let result = chain::execute_chain(&request.chain, wire_path, &scope, &client).await;
 
     // Print step results
+    println!("{}", "Results:".dimmed());
     for step in &result.steps {
         let icon = if step.passed {
             "✓".green().bold()

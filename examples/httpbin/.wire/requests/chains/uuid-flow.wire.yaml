@@ -1,0 +1,14 @@
+name: UUID Flow
+method: GET
+url: "{{schema}}://{{baseUrl}}/anything"
+chain:
+  - run: dynamic-data/uuid
+    extract:
+      uuid: body.uuid
+  - run: anything/anything-get
+    extract:
+      origin: body.origin
+      user_agent: headers.user-agent
+  - run: request-inspection/headers
+    extract:
+      host: body.headers.Host
