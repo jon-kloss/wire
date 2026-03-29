@@ -18,6 +18,27 @@ wire template list .wire                      # list templates
 wire history -d .wire                         # view history
 ```
 
+**CRITICAL: File path resolution for `send` and `test` commands.**
+These commands expect a file path relative to your current directory, NOT a short name.
+
+```bash
+# ✅ CORRECT — full relative path from project root
+wire send .wire/requests/echo/echo.wire.yaml -d .wire
+wire test .wire/requests/echo/echo.wire.yaml -d .wire
+
+# ❌ WRONG — short names do NOT work with send/test
+wire send echo/echo -d .wire
+wire send requests/echo/echo -d .wire
+wire send echo/echo.wire.yaml -d .wire
+```
+
+**Exception:** Chain steps use short names (resolved relative to `.wire/requests/`):
+```yaml
+chain:
+  - run: users/create        # resolves to .wire/requests/users/create.wire.yaml
+  - run: users/get-by-id     # short names ONLY work inside chain definitions
+```
+
 **Exact directory structure. Do NOT deviate:**
 
 ```
