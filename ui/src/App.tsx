@@ -1002,9 +1002,9 @@ function App() {
                           key={i}
                           className="url-variable"
                           data-tooltip={
-                            resolved !== undefined
+                            resolved !== undefined && resolved !== ""
                               ? resolved
-                              : "(not set)"
+                              : "Not Set"
                           }
                         >
                           {part}
