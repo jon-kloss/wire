@@ -214,8 +214,11 @@ fn parse_controllers(content: &str) -> Vec<DiscoveredEndpoint> {
     // Pre-compile regexes outside the loop
     let http_attr_re =
         Regex::new(r#"\[Http(Get|Post|Put|Patch|Delete)(?:\(\s*"([^"]*)"\s*\))?\]"#).unwrap();
+    // Match method signature: handles nested generics like Task<ActionResult<TourDto>>
+    // Uses [^(]+ to skip the return type (including nested <>) up to the method name + (
     let method_sig_re =
-        Regex::new(r#"(?s)(?:\[.*?\]\s*)*(?:public\s+)?(?:\w+(?:<[^>]+>)?)\s+(\w+)\s*\("#).unwrap();
+        Regex::new(r#"(?s)(?:\[.*?\]\s*)*(?:public\s+)?(?:async\s+)?(?:[^\s(]+\s+)+(\w+)\s*\("#)
+            .unwrap();
 
     for (route_template, class_name, class_start) in &controller_regions {
         let controller_short = class_name
