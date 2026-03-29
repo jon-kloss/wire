@@ -77,6 +77,15 @@ enum Commands {
         #[arg(short, long, default_value = "text")]
         output: String,
     },
+    /// Scan a project's source code and generate a .wire collection
+    Generate {
+        /// Path to source project directory to scan
+        project_dir: String,
+
+        /// Output directory for .wire collection (defaults to project dir)
+        #[arg(short = 'o', long)]
+        output: Option<String>,
+    },
     /// View or manage request history
     History {
         #[command(subcommand)]
@@ -145,6 +154,13 @@ async fn main() {
             output,
         } => {
             let exit_code = cmd_drift(&project_dir, &wire_dir, fix, &output);
+            std::process::exit(exit_code);
+        }
+        Commands::Generate {
+            project_dir,
+            output,
+        } => {
+            let exit_code = cmd_generate(&project_dir, output.as_deref());
             std::process::exit(exit_code);
         }
         Commands::Template { action } => match action {
@@ -560,6 +576,105 @@ fn cmd_drift(project_dir: &str, wire_dir: &str, fix: bool, output: &str) -> i32 
     } else {
         0
     }
+}
+
+fn cmd_generate(project_dir: &str, output: Option<&str>) -> i32 {
+    let project_path = Path::new(project_dir);
+    let output_path = output.map(Path::new).unwrap_or(project_path);
+
+    println!("{} {}", "Scanning".cyan().bold(), project_path.display());
+
+    let (scan, collection) =
+        match wire_core::scan::scan_and_create_collection(project_path, output_path) {
+            Ok(result) => result,
+            Err(e) => {
+                eprintln!("{}: {e}", "Error".red().bold());
+                return 1;
+            }
+        };
+
+    let framework = match scan.framework {
+        wire_core::scan::types::Framework::AspNet => "ASP.NET",
+        wire_core::scan::types::Framework::Express => "Express",
+        wire_core::scan::types::Framework::Unknown => "Unknown",
+    };
+
+    println!(
+        "  {} {} files scanned",
+        "✓".green().bold(),
+        scan.files_scanned,
+    );
+    println!("  {} Framework: {}", "✓".green().bold(), framework.cyan(),);
+    println!(
+        "  {} {} endpoints discovered",
+        "✓".green().bold(),
+        scan.endpoints.len(),
+    );
+
+    if scan.endpoints.is_empty() {
+        println!();
+        println!("{}", "No endpoints found. No collection created.".yellow());
+        return 0;
+    }
+
+    let col = match &collection {
+        Some(c) => c,
+        None => {
+            eprintln!(
+                "{}: endpoints found but collection was not created",
+                "Error".red().bold()
+            );
+            return 1;
+        }
+    };
+
+    let wire_dir = output_path.join(".wire");
+    println!();
+    println!(
+        "{} {} at {}",
+        "✓".green().bold(),
+        format!("Collection \"{}\" created", col.metadata.name).green(),
+        wire_dir.display().to_string().dimmed(),
+    );
+
+    // Show grouped endpoints
+    let mut groups: std::collections::BTreeMap<
+        &str,
+        Vec<&wire_core::scan::types::DiscoveredEndpoint>,
+    > = std::collections::BTreeMap::new();
+    for ep in &scan.endpoints {
+        groups.entry(&ep.group).or_default().push(ep);
+    }
+
+    println!();
+    println!("{}", "Endpoints:".bold());
+    for (group, endpoints) in &groups {
+        println!("  {}/", group.cyan());
+        for ep in endpoints {
+            let method_colored = match ep.method.as_str() {
+                "GET" => ep.method.green(),
+                "POST" => ep.method.yellow(),
+                "PUT" => ep.method.blue(),
+                "PATCH" => ep.method.magenta(),
+                "DELETE" => ep.method.red(),
+                _ => ep.method.normal(),
+            };
+            println!("    {} {} — {}", method_colored, ep.route, ep.name.dimmed());
+        }
+    }
+
+    println!();
+    println!(
+        "{}",
+        format!(
+            "{} request(s) in {} group(s)",
+            scan.endpoints.len(),
+            groups.len()
+        )
+        .dimmed()
+    );
+
+    0
 }
 
 fn print_drift_report(report: &drift::DriftReport) {

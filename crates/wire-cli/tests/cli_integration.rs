@@ -159,3 +159,112 @@ fn version_flag_works() {
         .success()
         .stdout(predicate::str::contains("wire"));
 }
+
+fn create_express_project(dir: &std::path::Path) {
+    let routes_dir = dir.join("routes");
+    fs::create_dir_all(&routes_dir).unwrap();
+
+    // package.json needed for Express framework detection
+    fs::write(
+        dir.join("package.json"),
+        r#"{"name": "test-api", "dependencies": {"express": "^4.18.0"}}"#,
+    )
+    .unwrap();
+
+    fs::write(
+        routes_dir.join("users.js"),
+        r#"const express = require('express');
+const router = express.Router();
+
+router.get('/users', (req, res) => {
+  res.json([]);
+});
+
+router.post('/users', (req, res) => {
+  res.json({ id: 1 });
+});
+
+module.exports = router;
+"#,
+    )
+    .unwrap();
+}
+
+#[test]
+fn generate_creates_collection_from_express_project() {
+    let dir = TempDir::new().unwrap();
+    create_express_project(dir.path());
+
+    wire_cmd()
+        .arg("generate")
+        .arg(dir.path().to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("2 endpoints discovered"))
+        .stdout(predicate::str::contains("Framework: Express"))
+        .stdout(predicate::str::contains("Collection"))
+        .stdout(predicate::str::contains("created"))
+        .stdout(predicate::str::contains("users/"));
+
+    // Verify .wire directory structure
+    assert!(dir.path().join(".wire/wire.yaml").exists());
+    assert!(dir.path().join(".wire/requests").is_dir());
+    assert!(dir.path().join(".wire/envs/dev.yaml").exists());
+
+    // Verify wire.yaml is valid and has collection name
+    let metadata = fs::read_to_string(dir.path().join(".wire/wire.yaml")).unwrap();
+    assert!(metadata.contains("name:"));
+    assert!(metadata.contains("version: 1"));
+}
+
+#[test]
+fn generate_with_output_flag() {
+    let project_dir = TempDir::new().unwrap();
+    let output_dir = TempDir::new().unwrap();
+    create_express_project(project_dir.path());
+
+    wire_cmd()
+        .arg("generate")
+        .arg(project_dir.path().to_str().unwrap())
+        .arg("-o")
+        .arg(output_dir.path().to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Collection"))
+        .stdout(predicate::str::contains("created"));
+
+    // Verify .wire directory was created in output dir, not project dir
+    assert!(output_dir.path().join(".wire/wire.yaml").exists());
+    assert!(output_dir.path().join(".wire/requests").is_dir());
+    assert!(!project_dir.path().join(".wire").exists());
+}
+
+#[test]
+fn generate_empty_project_no_collection() {
+    let dir = TempDir::new().unwrap();
+    // Empty directory — no source files
+
+    wire_cmd()
+        .arg("generate")
+        .arg(dir.path().to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("0 endpoints discovered"))
+        .stdout(predicate::str::contains(
+            "No endpoints found. No collection created.",
+        ))
+        .stdout(predicate::str::contains("Collection").not());
+
+    // No .wire directory should be created
+    assert!(!dir.path().join(".wire").exists());
+}
+
+#[test]
+fn generate_nonexistent_dir_fails() {
+    wire_cmd()
+        .arg("generate")
+        .arg("/nonexistent/project/path")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Not a directory"));
+}
