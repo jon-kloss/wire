@@ -1,0 +1,6 @@
+name: Status 500 Server Error
+method: GET
+url: "{{schema}}://{{baseUrl}}/status/500"
+tests:
+  - field: status
+    equals: 500

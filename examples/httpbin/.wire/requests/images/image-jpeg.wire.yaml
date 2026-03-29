@@ -1,0 +1,8 @@
+name: Image JPEG
+method: GET
+url: "{{schema}}://{{baseUrl}}/image/jpeg"
+tests:
+  - field: status
+    equals: 200
+  - field: header.content-type
+    equals: image/jpeg

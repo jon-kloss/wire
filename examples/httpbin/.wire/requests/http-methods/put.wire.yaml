@@ -1,0 +1,15 @@
+name: PUT Request
+method: PUT
+url: "{{schema}}://{{baseUrl}}/put"
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content:
+    id: 1
+    name: Updated Item
+tests:
+  - field: status
+    equals: 200
+  - field: body.json.name
+    equals: Updated Item

@@ -1,0 +1,19 @@
+name: Anything (POST)
+method: POST
+url: "{{schema}}://{{baseUrl}}/anything/data"
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content:
+    message: Hello from Wire
+    timestamp: "2025-01-01T00:00:00Z"
+tests:
+  - field: status
+    equals: 200
+  - field: body.method
+    equals: POST
+  - field: body.json.message
+    equals: Hello from Wire
+  - field: body.url
+    contains: /anything/data

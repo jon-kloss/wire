@@ -1,0 +1,6 @@
+name: Relative Redirect (2 times)
+method: GET
+url: "{{schema}}://{{baseUrl}}/relative-redirect/2"
+tests:
+  - field: status
+    equals: 200

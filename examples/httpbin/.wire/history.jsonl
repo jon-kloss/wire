@@ -1,0 +1,2 @@
+{"timestamp":"2026-03-29T03:56:36.801894Z","name":"Quick Request","method":"GET","url":"{{schema}}://{{baseUrl}}/anything","status":200,"elapsed_ms":136}
+{"timestamp":"2026-03-29T03:57:04.007548Z","name":"Quick Request","method":"PATCH","url":"{{schema}}://{{baseUrl}}/patch","status":200,"elapsed_ms":32}

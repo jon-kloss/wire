@@ -1,0 +1,11 @@
+name: Inspect Headers
+method: GET
+url: "{{schema}}://{{baseUrl}}/headers"
+headers:
+  X-Custom-Header: wire-test
+  Accept: application/json
+tests:
+  - field: status
+    equals: 200
+  - field: body.headers.X-Custom-Header
+    equals: wire-test

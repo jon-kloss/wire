@@ -1,0 +1,8 @@
+name: Delete Cookies
+method: GET
+url: "{{schema}}://{{baseUrl}}/cookies/delete"
+params:
+  session_id: ""
+tests:
+  - field: status
+    equals: 200

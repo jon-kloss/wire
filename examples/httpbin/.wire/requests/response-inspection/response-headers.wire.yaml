@@ -1,0 +1,11 @@
+name: Response Headers
+method: GET
+url: "{{schema}}://{{baseUrl}}/response-headers"
+params:
+  X-Wire-Test: hello
+  X-Custom: world
+tests:
+  - field: status
+    equals: 200
+  - field: header.x-wire-test
+    equals: hello

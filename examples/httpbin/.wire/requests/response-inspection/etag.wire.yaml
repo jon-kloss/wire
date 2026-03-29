@@ -1,0 +1,8 @@
+name: ETag
+method: GET
+url: "{{schema}}://{{baseUrl}}/etag/wire-test-etag"
+tests:
+  - field: status
+    equals: 200
+  - field: header.etag
+    equals: wire-test-etag

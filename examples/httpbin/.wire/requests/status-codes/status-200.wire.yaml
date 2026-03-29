@@ -1,0 +1,6 @@
+name: Status 200 OK
+method: GET
+url: "{{schema}}://{{baseUrl}}/status/200"
+tests:
+  - field: status
+    equals: 200

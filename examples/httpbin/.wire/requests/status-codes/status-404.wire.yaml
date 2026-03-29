@@ -1,0 +1,6 @@
+name: Status 404 Not Found
+method: GET
+url: "{{schema}}://{{baseUrl}}/status/404"
+tests:
+  - field: status
+    equals: 404

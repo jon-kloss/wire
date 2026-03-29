@@ -1,0 +1,6 @@
+name: Absolute Redirect (2 times)
+method: GET
+url: "{{schema}}://{{baseUrl}}/absolute-redirect/2"
+tests:
+  - field: status
+    equals: 200

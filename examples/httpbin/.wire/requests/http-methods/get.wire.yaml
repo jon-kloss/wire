@@ -1,0 +1,13 @@
+name: GET Request
+method: GET
+url: "{{schema}}://{{baseUrl}}/get"
+params:
+  foo: bar
+  page: "1"
+tests:
+  - field: status
+    equals: 200
+  - field: body.args.foo
+    equals: bar
+  - field: header.content-type
+    contains: application/json

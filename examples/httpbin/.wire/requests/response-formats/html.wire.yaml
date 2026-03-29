@@ -1,0 +1,10 @@
+name: HTML Response
+method: GET
+url: "{{schema}}://{{baseUrl}}/html"
+tests:
+  - field: status
+    equals: 200
+  - field: header.content-type
+    contains: text/html
+  - field: body
+    body_contains: Herman Melville

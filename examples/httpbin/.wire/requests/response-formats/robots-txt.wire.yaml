@@ -1,0 +1,8 @@
+name: Robots.txt
+method: GET
+url: "{{schema}}://{{baseUrl}}/robots.txt"
+tests:
+  - field: status
+    equals: 200
+  - field: body
+    body_contains: Disallow

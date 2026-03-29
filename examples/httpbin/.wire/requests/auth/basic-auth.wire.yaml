@@ -1,0 +1,12 @@
+name: Basic Auth
+method: GET
+url: "{{schema}}://{{baseUrl}}/basic-auth/user/passwd"
+headers:
+  Authorization: Basic dXNlcjpwYXNzd2Q=
+tests:
+  - field: status
+    equals: 200
+  - field: body.authenticated
+    equals: true
+  - field: body.user
+    equals: user

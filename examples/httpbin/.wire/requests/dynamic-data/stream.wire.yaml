@@ -1,0 +1,6 @@
+name: Stream JSON (5 lines)
+method: GET
+url: "{{schema}}://{{baseUrl}}/stream/5"
+tests:
+  - field: status
+    equals: 200

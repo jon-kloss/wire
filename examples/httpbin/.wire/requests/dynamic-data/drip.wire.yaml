@@ -1,0 +1,10 @@
+name: Drip Data
+method: GET
+url: "{{schema}}://{{baseUrl}}/drip"
+params:
+  numbytes: "5"
+  duration: "1"
+  code: "200"
+tests:
+  - field: status
+    equals: 200

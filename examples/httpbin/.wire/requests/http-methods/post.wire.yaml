@@ -1,0 +1,20 @@
+name: POST Request
+method: POST
+url: "{{schema}}://{{baseUrl}}/post"
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content:
+    name: Wire
+    version: "0.1"
+    features:
+      - fast
+      - local-first
+tests:
+  - field: status
+    equals: 200
+  - field: body.json.name
+    equals: Wire
+  - field: body.json.features
+    is_array: true

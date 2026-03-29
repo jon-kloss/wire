@@ -1,0 +1,6 @@
+name: Digest Auth
+method: GET
+url: "{{schema}}://{{baseUrl}}/digest-auth/auth/user/passwd"
+tests:
+  - field: status
+    equals: 401

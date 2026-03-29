@@ -1,0 +1,8 @@
+name: XML Response
+method: GET
+url: "{{schema}}://{{baseUrl}}/xml"
+tests:
+  - field: status
+    equals: 200
+  - field: header.content-type
+    contains: application/xml

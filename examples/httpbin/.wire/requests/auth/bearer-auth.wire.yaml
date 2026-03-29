@@ -1,0 +1,12 @@
+name: Bearer Auth
+method: GET
+url: "{{schema}}://{{baseUrl}}/bearer"
+headers:
+  Authorization: Bearer my-test-token
+tests:
+  - field: status
+    equals: 200
+  - field: body.authenticated
+    equals: true
+  - field: body.token
+    equals: my-test-token

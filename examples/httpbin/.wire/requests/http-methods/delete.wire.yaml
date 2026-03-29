@@ -1,0 +1,6 @@
+name: DELETE Request
+method: DELETE
+url: "{{schema}}://{{baseUrl}}/delete"
+tests:
+  - field: status
+    equals: 200

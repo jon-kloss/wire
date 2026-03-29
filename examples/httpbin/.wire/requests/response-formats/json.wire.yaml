@@ -1,0 +1,10 @@
+name: JSON Response
+method: GET
+url: "{{schema}}://{{baseUrl}}/json"
+tests:
+  - field: status
+    equals: 200
+  - field: header.content-type
+    contains: application/json
+  - field: body.slideshow.title
+    exists: true

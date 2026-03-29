@@ -1,0 +1,6 @@
+name: Brotli Encoded
+method: GET
+url: "{{schema}}://{{baseUrl}}/brotli"
+tests:
+  - field: status
+    equals: 200

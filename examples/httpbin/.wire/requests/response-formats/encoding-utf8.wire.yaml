@@ -1,0 +1,6 @@
+name: UTF-8 Encoding
+method: GET
+url: "{{schema}}://{{baseUrl}}/encoding/utf8"
+tests:
+  - field: status
+    equals: 200

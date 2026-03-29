@@ -1,0 +1,6 @@
+name: Gzip Encoded
+method: GET
+url: "{{schema}}://{{baseUrl}}/gzip"
+tests:
+  - field: status
+    equals: 200

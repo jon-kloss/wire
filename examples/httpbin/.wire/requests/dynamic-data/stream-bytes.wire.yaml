@@ -1,0 +1,6 @@
+name: Stream Bytes (512)
+method: GET
+url: "{{schema}}://{{baseUrl}}/stream-bytes/512"
+tests:
+  - field: status
+    equals: 200

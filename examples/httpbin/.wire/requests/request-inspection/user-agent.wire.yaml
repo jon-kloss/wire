@@ -1,0 +1,8 @@
+name: Get User Agent
+method: GET
+url: "{{schema}}://{{baseUrl}}/user-agent"
+tests:
+  - field: status
+    equals: 200
+  - field: body.user-agent
+    contains: Wire

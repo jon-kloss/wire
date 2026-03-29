@@ -1,0 +1,6 @@
+name: Range (1024 bytes)
+method: GET
+url: "{{schema}}://{{baseUrl}}/range/1024"
+tests:
+  - field: status
+    equals: 200

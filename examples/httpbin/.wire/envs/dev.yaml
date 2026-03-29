@@ -1,0 +1,4 @@
+name: Development
+variables:
+  schema: https
+  baseUrl: httpbin.org

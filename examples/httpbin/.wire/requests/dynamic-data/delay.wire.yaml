@@ -1,0 +1,8 @@
+name: Delayed Response (2s)
+method: GET
+url: "{{schema}}://{{baseUrl}}/delay/2"
+tests:
+  - field: status
+    equals: 200
+  - field: elapsed_ms
+    greater_than: 1900

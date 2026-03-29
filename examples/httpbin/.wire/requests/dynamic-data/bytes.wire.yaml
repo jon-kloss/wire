@@ -1,0 +1,6 @@
+name: Random Bytes (256)
+method: GET
+url: "{{schema}}://{{baseUrl}}/bytes/256"
+tests:
+  - field: status
+    equals: 200

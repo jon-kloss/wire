@@ -1,0 +1,14 @@
+name: PATCH Request
+method: PATCH
+url: "{{schema}}://{{baseUrl}}/patch"
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content:
+    name: Patched Name
+tests:
+  - field: status
+    equals: 200
+  - field: body.json.name
+    equals: Patched Name

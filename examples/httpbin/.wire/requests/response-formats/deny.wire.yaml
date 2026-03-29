@@ -1,0 +1,6 @@
+name: Deny (Simulated robots.txt deny)
+method: GET
+url: "{{schema}}://{{baseUrl}}/deny"
+tests:
+  - field: status
+    equals: 200

@@ -1,0 +1,6 @@
+name: Redirect (3 times)
+method: GET
+url: "{{schema}}://{{baseUrl}}/redirect/3"
+tests:
+  - field: status
+    equals: 200

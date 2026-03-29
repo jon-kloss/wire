@@ -1,0 +1,8 @@
+name: Base64 Decode
+method: GET
+url: "{{schema}}://{{baseUrl}}/base64/V2lyZSBpcyBhd2Vzb21l"
+tests:
+  - field: status
+    equals: 200
+  - field: body
+    body_contains: Wire is awesome

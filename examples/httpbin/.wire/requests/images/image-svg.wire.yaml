@@ -1,0 +1,8 @@
+name: Image SVG
+method: GET
+url: "{{schema}}://{{baseUrl}}/image/svg"
+tests:
+  - field: status
+    equals: 200
+  - field: header.content-type
+    contains: image/svg+xml

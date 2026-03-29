@@ -1,0 +1,10 @@
+name: Generate UUID
+method: GET
+url: "{{schema}}://{{baseUrl}}/uuid"
+tests:
+  - field: status
+    equals: 200
+  - field: body.uuid
+    exists: true
+  - field: body.uuid
+    body_matches: "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"

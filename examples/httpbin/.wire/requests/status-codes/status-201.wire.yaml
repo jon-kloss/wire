@@ -1,0 +1,6 @@
+name: Status 201 Created
+method: POST
+url: "{{schema}}://{{baseUrl}}/status/201"
+tests:
+  - field: status
+    equals: 201

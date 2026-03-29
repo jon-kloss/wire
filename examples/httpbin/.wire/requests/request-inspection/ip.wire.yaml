@@ -1,0 +1,8 @@
+name: Get Origin IP
+method: GET
+url: "{{schema}}://{{baseUrl}}/ip"
+tests:
+  - field: status
+    equals: 200
+  - field: body.origin
+    exists: true

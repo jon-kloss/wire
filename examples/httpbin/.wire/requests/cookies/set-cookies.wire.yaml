@@ -1,0 +1,9 @@
+name: Set Cookies
+method: GET
+url: "{{schema}}://{{baseUrl}}/cookies/set"
+params:
+  session_id: abc123
+  theme: dark
+tests:
+  - field: status
+    equals: 200

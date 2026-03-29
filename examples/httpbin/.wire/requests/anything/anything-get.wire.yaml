@@ -1,0 +1,16 @@
+name: Anything (GET)
+method: GET
+url: "{{schema}}://{{baseUrl}}/anything"
+headers:
+  X-Wire: test-header
+params:
+  search: wire
+tests:
+  - field: status
+    equals: 200
+  - field: body.method
+    equals: GET
+  - field: body.args.search
+    equals: wire
+  - field: body.headers.X-Wire
+    equals: test-header

@@ -1,0 +1,6 @@
+name: Deflate Encoded
+method: GET
+url: "{{schema}}://{{baseUrl}}/deflate"
+tests:
+  - field: status
+    equals: 200

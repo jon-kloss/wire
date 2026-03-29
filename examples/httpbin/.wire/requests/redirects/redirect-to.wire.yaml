@@ -1,0 +1,9 @@
+name: Redirect To URL
+method: GET
+url: "{{schema}}://{{baseUrl}}/redirect-to"
+params:
+  url: "https://httpbin.org/get"
+  status_code: "302"
+tests:
+  - field: status
+    equals: 200

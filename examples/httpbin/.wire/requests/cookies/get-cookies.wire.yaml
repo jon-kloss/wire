@@ -1,0 +1,8 @@
+name: Get Cookies
+method: GET
+url: "{{schema}}://{{baseUrl}}/cookies"
+tests:
+  - field: status
+    equals: 200
+  - field: body.cookies
+    is_object: true
