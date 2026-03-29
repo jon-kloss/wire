@@ -356,6 +356,18 @@ pub async fn list_templates_cmd(wire_dir: String) -> Result<Vec<String>, String>
 }
 
 #[tauri::command]
+pub async fn read_template(
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<WireRequest, String> {
+    let col_path = state.collection_path.lock().await;
+    let wire_dir = col_path
+        .as_ref()
+        .ok_or_else(|| "No collection open".to_string())?;
+    wire_core::collection::template::load_template(&name, wire_dir).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn save_request(path: String, request: WireRequest) -> Result<(), String> {
     let file_path = Path::new(&path);
 

@@ -169,6 +169,7 @@ function App() {
     null
   );
   const [extendsTemplate, setExtendsTemplate] = useState<string | null>(null);
+  const [extendsTooltip, setExtendsTooltip] = useState<string>("");
 
   // Sidebar state
   const [sidebarTab, setSidebarTab] = useState<"collections" | "activity">(
@@ -252,6 +253,7 @@ function App() {
     setSelectedRequestPath(null);
     setSelectedRequestName(null);
     setExtendsTemplate(null);
+    setExtendsTooltip("");
     setResponse(null);
     setError(null);
     setTestResults([]);
@@ -329,6 +331,7 @@ function App() {
     setSelectedRequestPath(null);
     setSelectedRequestName(null);
     setExtendsTemplate(null);
+    setExtendsTooltip("");
     setResponse(null);
     setError(null);
   }, [showPrompt]);
@@ -614,6 +617,25 @@ function App() {
         setSelectedRequestPath(entry.path);
         setSelectedRequestName(req.name);
         setExtendsTemplate(req.extends ?? null);
+
+        // Build tooltip showing what's inherited from the template
+        if (req.extends) {
+          try {
+            const tmpl = await invoke<WireRequest>("read_template", { name: req.extends });
+            const parts: string[] = [];
+            const headerNames = Object.keys(tmpl.headers);
+            if (headerNames.length > 0) parts.push(...headerNames);
+            const paramNames = Object.keys(tmpl.params);
+            if (paramNames.length > 0) parts.push(...paramNames.map((p) => `${p} param`));
+            if (tmpl.body) parts.push("body");
+            setExtendsTooltip(parts.length > 0 ? `Inheriting ${parts.join(", ")}` : "");
+          } catch {
+            setExtendsTooltip("");
+          }
+        } else {
+          setExtendsTooltip("");
+        }
+
         setResponse(null);
         setError(null);
         setTestResults([]);
@@ -1086,6 +1108,7 @@ function App() {
                       setSelectedRequestPath(null);
                       setSelectedRequestName(null);
                       setExtendsTemplate(null);
+                      setExtendsTooltip("");
                       setResponse(null);
                       setError(null);
                     }}
@@ -1174,7 +1197,7 @@ function App() {
         {extendsTemplate && (
           <div
             className="template-badge"
-            data-tooltip={`Inherits headers, params, and body defaults from template "${extendsTemplate}"`}
+            data-tooltip={extendsTooltip || undefined}
           >
             <span className="template-badge-label">extends</span>
             <span className="template-badge-name">{extendsTemplate}</span>
