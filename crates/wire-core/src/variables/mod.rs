@@ -1,6 +1,7 @@
 mod engine;
+pub mod secrets;
 
-pub use engine::{interpolate, interpolate_map};
+pub use engine::{interpolate, interpolate_map, interpolate_with_context};
 
 use std::collections::HashMap;
 
