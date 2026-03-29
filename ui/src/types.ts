@@ -98,6 +98,26 @@ export interface DriftReport {
   changed_count: number;
 }
 
+/** Result of a single chain step execution */
+export interface ChainStepResult {
+  step_index: number;
+  request_name: string;
+  request_path: string;
+  status: number;
+  elapsed_ms: number;
+  extracted: Record<string, string>;
+  passed: boolean;
+  error: string | null;
+}
+
+/** Result of executing an entire chain */
+export interface ChainResult {
+  steps: ChainStepResult[];
+  success: boolean;
+  total_elapsed_ms: number;
+  error: string | null;
+}
+
 /** Collection info returned after opening a .wire/ directory */
 export interface IpcCollectionInfo {
   name: string;
