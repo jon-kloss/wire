@@ -523,6 +523,7 @@
 .test-results-panel {
   height: 100%;
   overflow-y: auto;
+  margin: -16px;
 }
 
 .test-results-list {
@@ -606,24 +607,26 @@
 
 /* Test assertion editor */
 .test-editor {
-  padding: 16px 20px;
+  padding: 0;
 }
 
 .test-editor-title {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 500;
   color: #d4d4d4;
-  margin: 0 0 12px 0;
+  margin: 0;
+  padding: 10px 16px;
   border-bottom: 1px solid #3c3c3c;
-  padding-bottom: 8px;
+  background: #2a2a2a;
 }
 
 .test-assertion-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 0;
+  padding: 6px 16px;
   flex-wrap: wrap;
+  border-bottom: 1px solid #2a2a2a;
 }
 
 .test-assertion-row.passed .test-result-icon {
@@ -713,45 +716,47 @@
 .test-assertion-actions {
   display: flex;
   gap: 8px;
-  margin-top: 8px;
+  padding: 12px 16px;
+  flex-wrap: wrap;
 }
 
 .test-assertion-add {
-  background: transparent;
-  border: 1px dashed #555;
-  color: #888;
+  background: #3c3c3c;
+  border: 1px solid #555;
+  color: #d4d4d4;
   border-radius: 4px;
-  padding: 5px 8px;
+  padding: 6px 12px;
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   text-align: left;
 }
 
 .test-assertion-add:hover {
-  color: #d4d4d4;
+  background: #4c4c4c;
   border-color: #888;
 }
 
 .test-assertion-from-response {
-  border-style: solid;
+  background: rgba(0, 122, 204, 0.15);
   border-color: #007acc;
   color: #4ec9b0;
 }
 
 .test-assertion-from-response:hover {
-  background: rgba(0, 122, 204, 0.1);
+  background: rgba(0, 122, 204, 0.25);
   color: #4ec9b0;
   border-color: #007acc;
 }
 
 .test-assertion-from-schema {
-  border-style: solid;
+  background: rgba(197, 134, 192, 0.15);
   border-color: #c586c0;
   color: #c586c0;
 }
 
 .test-assertion-from-schema:hover {
-  background: rgba(197, 134, 192, 0.1);
+  background: rgba(197, 134, 192, 0.25);
   color: #c586c0;
   border-color: #c586c0;
 }
