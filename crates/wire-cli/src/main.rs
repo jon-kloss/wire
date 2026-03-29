@@ -4,6 +4,7 @@ use std::path::Path;
 use wire_core::collection::{load_collection, load_request};
 use wire_core::history::{self, HistoryEntry};
 use wire_core::http::{execute, HttpClient};
+use wire_core::test::runner;
 use wire_core::variables::VariableScope;
 
 #[derive(Parser)]
@@ -35,6 +36,23 @@ enum Commands {
         /// Path to .wire directory (defaults to .wire/ in current dir)
         #[arg(default_value = ".wire")]
         dir: String,
+    },
+    /// Run tests defined in .wire.yaml files
+    Test {
+        /// Path to a .wire.yaml file or directory to test
+        path: String,
+
+        /// Environment to use (e.g., dev, prod)
+        #[arg(short, long)]
+        env: Option<String>,
+
+        /// Path to .wire collection directory (for environments)
+        #[arg(short = 'd', long, default_value = ".wire")]
+        wire_dir: String,
+
+        /// Output format: text or json
+        #[arg(short, long, default_value = "text")]
+        output: String,
     },
     /// View or manage request history
     History {
@@ -71,6 +89,15 @@ async fn main() {
                 eprintln!("{}: {e}", "Error".red().bold());
                 std::process::exit(1);
             }
+        }
+        Commands::Test {
+            path,
+            env,
+            wire_dir,
+            output,
+        } => {
+            let exit_code = cmd_test(&path, env.as_deref(), &wire_dir, &output).await;
+            std::process::exit(exit_code);
         }
         Commands::List { dir } => {
             if let Err(e) = cmd_list(&dir) {
@@ -189,6 +216,116 @@ async fn cmd_send(
     }
 
     Ok(())
+}
+
+async fn cmd_test(path: &str, env_name: Option<&str>, wire_dir: &str, output: &str) -> i32 {
+    let wire_path = Path::new(wire_dir);
+    let wd = if wire_path.is_dir() {
+        Some(wire_path)
+    } else {
+        None
+    };
+
+    let summary = match runner::run_tests(Path::new(path), env_name, wd).await {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("{}: {e}", "Error".red().bold());
+            return 1;
+        }
+    };
+
+    if output == "json" {
+        match serde_json::to_string_pretty(&summary) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                eprintln!("{}: {e}", "Error".red().bold());
+                return 1;
+            }
+        }
+    } else {
+        print_test_results(&summary);
+    }
+
+    if summary.all_passed() {
+        0
+    } else {
+        1
+    }
+}
+
+fn print_test_results(summary: &runner::TestRunSummary) {
+    if summary.results.is_empty() {
+        println!("{}", "No tests found.".dimmed());
+        return;
+    }
+
+    for result in &summary.results {
+        let status_icon = if result.all_passed() {
+            "✓".green().bold()
+        } else {
+            "✗".red().bold()
+        };
+
+        let method_colored = match result.method.as_str() {
+            "GET" => result.method.green(),
+            "POST" => result.method.yellow(),
+            "PUT" => result.method.blue(),
+            "PATCH" => result.method.magenta(),
+            "DELETE" => result.method.red(),
+            _ => result.method.normal(),
+        };
+
+        println!(
+            "{} {} {} {}",
+            status_icon,
+            method_colored,
+            result.name,
+            result.file.dimmed()
+        );
+
+        if let Some(ref err) = result.error {
+            println!("    {} {}", "ERROR:".red().bold(), err);
+            continue;
+        }
+
+        for assertion in &result.assertions {
+            let icon = if assertion.passed {
+                "  ✓".green()
+            } else {
+                "  ✗".red()
+            };
+            print!(
+                "  {} {} {} {}",
+                icon,
+                assertion.field.cyan(),
+                assertion.operator.dimmed(),
+                assertion.expected
+            );
+            if !assertion.passed {
+                print!(" {} {}", "(got".dimmed(), assertion.actual.red());
+                print!("{}", ")".dimmed());
+            }
+            println!();
+        }
+    }
+
+    println!();
+    let total = format!(
+        "{} assertions, {} passed, {} failed",
+        summary.total_assertions, summary.passed, summary.failed
+    );
+    if summary.all_passed() {
+        println!("{} {}", "✓".green().bold(), total.green());
+    } else {
+        println!("{} {}", "✗".red().bold(), total.red());
+    }
+    if summary.errors > 0 {
+        println!(
+            "  {} {} request(s) failed to execute",
+            "⚠".yellow(),
+            summary.errors
+        );
+    }
 }
 
 fn cmd_list(dir: &str) -> Result<(), Box<dyn std::error::Error>> {
