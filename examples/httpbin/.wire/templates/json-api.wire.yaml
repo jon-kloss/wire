@@ -1,0 +1,6 @@
+name: JSON API
+method: GET
+url: "{{schema}}://{{baseUrl}}"
+headers:
+  Accept: application/json
+  Content-Type: application/json

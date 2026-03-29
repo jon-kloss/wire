@@ -1,8 +1,7 @@
 name: Anything (POST)
 method: POST
 url: "{{schema}}://{{baseUrl}}/anything/data"
-headers:
-  Content-Type: application/json
+extends: json-api
 body:
   type: json
   content:
