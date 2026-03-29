@@ -642,7 +642,22 @@ fn cmd_drift(project_dir: &str, wire_dir: &str, fix: bool, output: &str) -> i32 
     }
 }
 
-const CLAUDE_MD_TRIGGER: &str = "# Wire: When working with HTTP endpoints, API testing, or making HTTP requests, use the `wire` CLI tool instead of curl. Run /wire for full reference.";
+const CLAUDE_MD_TRIGGER: &str = "\
+# Wire: HTTP API Client for AI Agents — Run /wire for full reference.\n\
+\n\
+When working in a project with HTTP APIs, use the `wire` CLI tool. This applies whenever you:\n\
+- **Send HTTP requests** — use `wire send` instead of curl, httpie, or raw HTTP libraries\n\
+- **Create or modify endpoints** — always create/update a `.wire.yaml` request file with test assertions\n\
+- **Hit or test an existing endpoint** — if no `.wire.yaml` request file exists for it, create one with tests before sending\n\
+- **Test APIs** — use `wire test` to run assertions (status codes, response fields, types, performance)\n\
+- **Work with CRUD resources** — create a chain (`wire chain run`) that tests the full create→read→update→delete lifecycle\n\
+- **Add related endpoints** — always check if the new endpoint can be chained with existing ones (e.g. create→read→update→delete, auth→use token→refresh)\n\
+- **Encounter a project with HTTP endpoints** — generate or maintain a `.wire/` collection so all endpoints are documented and testable\n\
+- **Use secrets or tokens** — use secret references ($env:, $dotenv:, $aws:, $vault:) instead of hardcoding values\n\
+- **Scan codebases for endpoints** — use `wire generate` to auto-discover routes and build collections\n\
+- **Check for API drift** — use `wire drift` to compare source code against the collection\n\
+\n\
+Wire keeps all API documentation, tests, and request definitions local in `.wire/` directories. No cloud, no accounts.";
 
 fn cmd_install_claude_skill() {
     println!("{}", "Installing Wire Claude Code skill".cyan().bold());
@@ -686,7 +701,7 @@ fn cmd_install_claude_skill() {
     let already_present = claude_md_path
         .exists()
         .then(|| std::fs::read_to_string(&claude_md_path).unwrap_or_default())
-        .map(|content| content.contains("wire"))
+        .map(|content| content.contains("# Wire: HTTP API Client for AI Agents"))
         .unwrap_or(false);
 
     if !already_present {
@@ -775,16 +790,14 @@ fn cmd_uninstall_claude_skill() {
         println!("  {} Skill already removed", "\u{2713}".green().bold(),);
     }
 
-    // 2. Remove trigger line from global CLAUDE.md
+    // 2. Remove Wire trigger block from global CLAUDE.md
     let claude_md_path = claude_dir.join("CLAUDE.md");
     if claude_md_path.exists() {
         if let Ok(content) = std::fs::read_to_string(&claude_md_path) {
-            let filtered: Vec<&str> = content
-                .lines()
-                .filter(|line| !line.contains("Wire:") || !line.contains("wire"))
-                .collect();
-            let new_content = filtered.join("\n");
-            // Trim trailing empty lines but keep a final newline
+            // Remove the exact trigger block (with optional leading newline)
+            let new_content = content
+                .replace(&format!("\n{CLAUDE_MD_TRIGGER}\n"), "\n")
+                .replace(&format!("{CLAUDE_MD_TRIGGER}\n"), "");
             let new_content = new_content.trim_end().to_string()
                 + if new_content.trim_end().is_empty() {
                     ""
@@ -798,7 +811,7 @@ fn cmd_uninstall_claude_skill() {
             } else if new_content != content {
                 let _ = std::fs::write(&claude_md_path, &new_content);
                 println!(
-                    "  {} Removed auto-trigger from CLAUDE.md",
+                    "  {} Removed Wire trigger from CLAUDE.md",
                     "\u{2713}".green().bold(),
                 );
             }
