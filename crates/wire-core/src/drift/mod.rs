@@ -174,27 +174,31 @@ pub fn compare(
                 }
             }
 
-            // Compare body fields (if endpoint has body_fields)
+            // Compare body fields (case-insensitive: scan returns PascalCase,
+            // endpoint_to_request converts to camelCase for JSON)
             if !ep.body_fields.is_empty() {
-                let ep_fields: std::collections::HashSet<&str> =
-                    ep.body_fields.iter().map(|(n, _)| n.as_str()).collect();
+                let ep_fields: std::collections::HashSet<String> = ep
+                    .body_fields
+                    .iter()
+                    .map(|(n, _)| n.to_lowercase())
+                    .collect();
                 if let Some(ref body) = req.body {
                     if let Some(obj) = body.content.as_object() {
-                        let req_fields: std::collections::HashSet<&str> =
-                            obj.keys().map(|s| s.as_str()).collect();
+                        let req_fields: std::collections::HashSet<String> =
+                            obj.keys().map(|s| s.to_lowercase()).collect();
                         if ep_fields != req_fields {
                             let added: Vec<_> = ep_fields.difference(&req_fields).collect();
                             let removed: Vec<_> = req_fields.difference(&ep_fields).collect();
                             if !added.is_empty() {
                                 changes.push(format!(
                                     "new body fields: {}",
-                                    added.into_iter().copied().collect::<Vec<_>>().join(", ")
+                                    added.into_iter().cloned().collect::<Vec<_>>().join(", ")
                                 ));
                             }
                             if !removed.is_empty() {
                                 changes.push(format!(
                                     "removed body fields: {}",
-                                    removed.into_iter().copied().collect::<Vec<_>>().join(", ")
+                                    removed.into_iter().cloned().collect::<Vec<_>>().join(", ")
                                 ));
                             }
                         }
@@ -202,14 +206,17 @@ pub fn compare(
                 }
             }
 
-            // Compare response schema
+            // Compare response schema (case-insensitive)
             if !ep.response_fields.is_empty() {
-                let ep_response: std::collections::HashSet<&str> =
-                    ep.response_fields.iter().map(|(n, _)| n.as_str()).collect();
-                let req_response: std::collections::HashSet<&str> = req
+                let ep_response: std::collections::HashSet<String> = ep
+                    .response_fields
+                    .iter()
+                    .map(|(n, _)| n.to_lowercase())
+                    .collect();
+                let req_response: std::collections::HashSet<String> = req
                     .response_schema
                     .iter()
-                    .map(|(n, _)| n.as_str())
+                    .map(|(n, _)| n.to_lowercase())
                     .collect();
                 if ep_response != req_response {
                     changes.push("response schema changed".to_string());
