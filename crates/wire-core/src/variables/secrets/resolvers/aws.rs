@@ -2,13 +2,15 @@ use crate::error::WireError;
 
 /// Resolve a secret from AWS Secrets Manager.
 ///
-/// Key format: `secret-name` or `secret-name/json-key`
-/// - `secret-name` — returns the entire secret string
-/// - `secret-name/json-key` — returns a specific field from a JSON secret
+/// Key format: `secret-name` or `secret/path#json-key`
+/// - `prod/stripe` — returns the entire secret string
+/// - `prod/stripe#secret_key` — returns a specific field from a JSON secret
+///
+/// The `#` separator distinguishes the JSON field from the secret path (which can contain `/`).
 ///
 /// Shells out to: `aws secretsmanager get-secret-value --secret-id <name> --query SecretString --output text`
 pub fn resolve(key: &str) -> Result<String, WireError> {
-    let (secret_name, json_key) = if let Some(pos) = key.find('/') {
+    let (secret_name, json_key) = if let Some(pos) = key.find('#') {
         (&key[..pos], Some(&key[pos + 1..]))
     } else {
         (key, None)

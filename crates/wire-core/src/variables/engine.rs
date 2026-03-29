@@ -55,8 +55,17 @@ pub fn interpolate_map(
     map: &std::collections::HashMap<String, String>,
     scope: &VariableScope,
 ) -> Result<std::collections::HashMap<String, String>, WireError> {
+    interpolate_map_with_context(map, scope, None)
+}
+
+/// Like interpolate_map(), but with an optional project directory for .env file discovery.
+pub fn interpolate_map_with_context(
+    map: &std::collections::HashMap<String, String>,
+    scope: &VariableScope,
+    project_dir: Option<&Path>,
+) -> Result<std::collections::HashMap<String, String>, WireError> {
     map.iter()
-        .map(|(k, v)| Ok((k.clone(), interpolate(v, scope)?)))
+        .map(|(k, v)| Ok((k.clone(), interpolate_with_context(v, scope, project_dir)?)))
         .collect()
 }
 

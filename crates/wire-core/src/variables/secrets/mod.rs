@@ -87,6 +87,20 @@ pub fn check_collection_secrets(
             if let Some(secret_ref) = parse_secret_ref(value) {
                 let source = format!("{:?}", secret_ref.source).to_lowercase();
                 let key = secret_ref.key.clone();
+
+                // Skip live backends (AWS, Vault) during check — they make network calls
+                if matches!(secret_ref.source, SecretSource::Aws | SecretSource::Vault) {
+                    results.push(SecretCheckResult {
+                        env_name: env_name.clone(),
+                        var_name: var_name.clone(),
+                        source,
+                        key,
+                        resolved: true,
+                        error: Some("skipped — live backend (use at request time)".to_string()),
+                    });
+                    continue;
+                }
+
                 match resolve_secret(&secret_ref, project_dir) {
                     Ok(_) => results.push(SecretCheckResult {
                         env_name: env_name.clone(),
@@ -125,11 +139,13 @@ pub fn mask_value(value: &str) -> String {
     if value.is_empty() {
         return String::new();
     }
-    let visible = std::cmp::min(4, value.len() / 4);
-    if visible == 0 || value.len() < 8 {
-        "*".repeat(value.len().min(8))
+    let char_count = value.chars().count();
+    let visible = std::cmp::min(4, char_count / 4);
+    if visible == 0 || char_count < 8 {
+        "*".repeat(char_count.min(8))
     } else {
-        format!("{}{}", &value[..visible], "*".repeat(8))
+        let prefix: String = value.chars().take(visible).collect();
+        format!("{}{}", prefix, "*".repeat(8))
     }
 }
 
