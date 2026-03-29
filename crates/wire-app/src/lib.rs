@@ -27,6 +27,7 @@ pub fn run() {
             commands::list_templates_cmd,
             commands::read_template,
             commands::save_template,
+            commands::delete_template,
             commands::toggle_default_template,
         ])
         .run(tauri::generate_context!())

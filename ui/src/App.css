@@ -1108,6 +1108,20 @@
   color: #e8a317;
 }
 
+.template-delete-btn {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.template-delete-btn:hover {
+  color: #f44747;
+}
+
 /* Template add button in sidebar */
 .template-add-btn {
   margin-left: auto;

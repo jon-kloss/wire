@@ -5,3 +5,6 @@ headers: {}
 params:
   Dsfsf: Dfsf
 body: null
+tests:
+- field: status
+  equals: 200

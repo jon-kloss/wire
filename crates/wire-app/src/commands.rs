@@ -368,6 +368,50 @@ pub async fn save_request(path: String, request: WireRequest) -> Result<(), Stri
 }
 
 #[tauri::command]
+pub async fn delete_template(name: String, state: State<'_, AppState>) -> Result<(), String> {
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err(format!("Invalid template name: {name}"));
+    }
+
+    let wire_dir = state
+        .collection_path
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| "No collection open".to_string())?;
+
+    let file_path = wire_dir.join("templates").join(format!("{name}.wire.yaml"));
+    if !file_path.exists() {
+        return Err(format!("Template not found: {name}"));
+    }
+    std::fs::remove_file(&file_path).map_err(|e| format!("Failed to delete template: {e}"))?;
+
+    // Remove from default_templates if present
+    let mut col_guard = state.collection.lock().await;
+    if let Some(ref mut col) = *col_guard {
+        col.metadata.default_templates.retain(|t| t != &name);
+    }
+    drop(col_guard);
+
+    // Also update wire.yaml on disk if it was a default
+    let metadata_path = wire_dir.join("wire.yaml");
+    if metadata_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&metadata_path) {
+            if let Ok(mut metadata) =
+                serde_yaml::from_str::<wire_core::collection::WireCollection>(&content)
+            {
+                metadata.default_templates.retain(|t| t != &name);
+                if let Ok(yaml) = serde_yaml::to_string(&metadata) {
+                    let _ = std::fs::write(&metadata_path, yaml);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn save_template(
     name: String,
     request: WireRequest,

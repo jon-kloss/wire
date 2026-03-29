@@ -1212,6 +1212,35 @@ function App() {
                                     >
                                       {info.default_templates.includes(tmpl) ? "\u2605" : "\u2606"}
                                     </button>
+                                    <button
+                                      className="template-delete-btn"
+                                      title="Delete template"
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        try {
+                                          await invoke("delete_template", { name: tmpl });
+                                          const updated = await invoke<IpcCollectionInfo>("open_collection", { wireDir: path });
+                                          setCollections((prev) =>
+                                            prev.map((c) =>
+                                              c.path === path ? { info: updated, path: c.path } : c
+                                            )
+                                          );
+                                          // Clear editor if this template was selected
+                                          if (selectedRequestPath === `${path}/templates/${tmpl}.wire.yaml`) {
+                                            setSelectedRequestPath(null);
+                                            setSelectedRequestName(null);
+                                            setIsEditingTemplate(false);
+                                            setHeadersText("");
+                                            setBodyText("");
+                                            setQueryParams([]);
+                                          }
+                                        } catch (err) {
+                                          setError(String(err));
+                                        }
+                                      }}
+                                    >
+                                      &times;
+                                    </button>
                                   </div>
                                 ))}
                               </div>
