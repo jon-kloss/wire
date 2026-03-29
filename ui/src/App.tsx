@@ -171,6 +171,7 @@ function App() {
   );
   const [extendsTemplate, setExtendsTemplate] = useState<string | null>(null);
   const [extendsTooltip, setExtendsTooltip] = useState<string>("");
+  const [isEditingTemplate, setIsEditingTemplate] = useState(false);
 
   // Sidebar state
   const [sidebarTab, setSidebarTab] = useState<"collections" | "activity">(
@@ -257,6 +258,7 @@ function App() {
     setQueryParams([]);
     setSelectedRequestPath(null);
     setSelectedRequestName(null);
+    setIsEditingTemplate(false);
     setExtendsTemplate(null);
     setExtendsTooltip("");
     setResponse(null);
@@ -335,6 +337,7 @@ function App() {
     setMethod("GET");
     setSelectedRequestPath(null);
     setSelectedRequestName(null);
+    setIsEditingTemplate(false);
     setExtendsTemplate(null);
     setExtendsTooltip("");
     setResponse(null);
@@ -621,6 +624,7 @@ function App() {
 
         setSelectedRequestPath(entry.path);
         setSelectedRequestName(req.name);
+        setIsEditingTemplate(false);
         setExtendsTemplate(req.extends ?? null);
 
         // Build tooltip showing what's inherited from the template
@@ -1090,8 +1094,7 @@ function App() {
                             )}
                           </div>
                         )}
-                        {info.templates.length > 0 && (
-                          <div className="collection-env-accordion">
+                        <div className="collection-env-accordion">
                             <div
                               className="collection-env-toggle"
                               onClick={() =>
@@ -1113,6 +1116,51 @@ function App() {
                               <span className="collection-count">
                                 {info.templates.length}
                               </span>
+                              <button
+                                className="template-add-btn"
+                                title="New Template"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const name = await showPrompt("Template name:", "");
+                                  if (!name?.trim()) return;
+                                  const tmplName = name.trim().replace(/\s+/g, "-").toLowerCase();
+                                  try {
+                                    const tmpl: WireRequest = {
+                                      name: tmplName,
+                                      method: "",
+                                      url: "",
+                                      headers: {},
+                                      params: {},
+                                      body: null,
+                                    };
+                                    await invoke("save_template", { name: tmplName, request: tmpl });
+                                    const updated = await invoke<IpcCollectionInfo>("open_collection", { wireDir: path });
+                                    setCollections((prev) =>
+                                      prev.map((c) => c.path === path ? { info: updated, path: c.path } : c)
+                                    );
+                                    // Open the new template in the editor
+                                    setActiveCollectionPath(path);
+                                    setSelectedRequestPath(`${path}/templates/${tmplName}.wire.yaml`);
+                                    setSelectedRequestName(tmplName);
+                                    setIsEditingTemplate(true);
+                                    setMethod("");
+                                    setUrl("");
+                                    setHeadersText("");
+                                    setBodyText("");
+                                    setQueryParams([]);
+                                    setExtendsTemplate(null);
+                                    setExtendsTooltip("");
+                                    setResponse(null);
+                                    setError(null);
+                                    // Expand the templates section
+                                    setExpandedTemplateSections((prev) => new Set([...prev, path]));
+                                  } catch (err) {
+                                    setError(String(err));
+                                  }
+                                }}
+                              >
+                                +
+                              </button>
                             </div>
                             {expandedTemplateSections.has(path) && (
                               <div className="collection-env-section">
@@ -1160,6 +1208,7 @@ function App() {
                                         );
                                         setSelectedRequestPath(tmplPath);
                                         setSelectedRequestName(tmpl);
+                                        setIsEditingTemplate(true);
                                         setExtendsTemplate(null);
                                         setExtendsTooltip("");
                                         setResponse(null);
@@ -1184,7 +1233,6 @@ function App() {
                               </div>
                             )}
                           </div>
-                        )}
                         <div className="collection-requests">
                           {sorted.length === 0 && (
                             <p className="placeholder collection-empty">
@@ -1242,6 +1290,7 @@ function App() {
                       setUrl(entry.url);
                       setSelectedRequestPath(null);
                       setSelectedRequestName(null);
+                      setIsEditingTemplate(false);
                       setExtendsTemplate(null);
                       setExtendsTooltip("");
                       setResponse(null);
@@ -1271,6 +1320,64 @@ function App() {
 
       {/* Center Panel: Request Builder */}
       <main className="request-builder">
+        {isEditingTemplate ? (
+        <div className="template-header-bar">
+          <span className="template-header-icon">T</span>
+          <span className="template-header-name">{selectedRequestName ?? "Template"}</span>
+          <button
+            className="save-btn"
+            onClick={async () => {
+              if (!activeCollectionPath || !selectedRequestName) return;
+              try {
+                const headers: Record<string, string> = {};
+                if (headersText.trim()) {
+                  for (const line of headersText.split("\n")) {
+                    const idx = line.indexOf(":");
+                    if (idx > 0) {
+                      headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+                    }
+                  }
+                }
+                let body: WireBody | null = null;
+                if (bodyText.trim()) {
+                  try {
+                    body = { type: "json", content: JSON.parse(bodyText) };
+                  } catch {
+                    body = { type: "text", content: bodyText };
+                  }
+                }
+                const params: Record<string, string> = {};
+                for (const p of queryParams) {
+                  if (p.key.trim() && p.enabled !== false) {
+                    params[p.key.trim()] = p.value;
+                  }
+                }
+                const tmpl: WireRequest = {
+                  name: selectedRequestName,
+                  method: "",
+                  url: "",
+                  headers,
+                  params,
+                  body,
+                };
+                await invoke("save_template", { name: selectedRequestName, request: tmpl });
+                const info = await invoke<IpcCollectionInfo>("open_collection", {
+                  wireDir: activeCollectionPath,
+                });
+                setCollections((prev) =>
+                  prev.map((c) =>
+                    c.path === activeCollectionPath ? { info, path: c.path } : c
+                  )
+                );
+              } catch (err) {
+                setError(String(err));
+              }
+            }}
+          >
+            Save Template
+          </button>
+        </div>
+        ) : (
         <div className="url-bar">
           <select
             className="method-select"
@@ -1361,7 +1468,7 @@ function App() {
                   }
                   const tmpl: WireRequest = {
                     name: tmplName,
-                    method: method || "GET",
+                    method: "",
                     url: "",
                     headers,
                     params,
@@ -1386,7 +1493,8 @@ function App() {
             </button>
           )}
         </div>
-        {activeTemplates.length > 0 && (
+        )}
+        {!isEditingTemplate && activeTemplates.length > 0 && (
           <div className="template-picker">
             <span className="template-picker-label">Template:</span>
             <select
