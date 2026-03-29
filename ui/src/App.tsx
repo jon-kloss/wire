@@ -1311,7 +1311,10 @@ function App() {
           <button
             className="save-btn"
             onClick={async () => {
-              if (!activeCollectionPath || !selectedRequestName) return;
+              if (!activeCollectionPath || !selectedRequestName) {
+                setError("No collection or template selected");
+                return;
+              }
               try {
                 const headers: Record<string, string> = {};
                 if (headersText.trim()) {

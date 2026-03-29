@@ -342,11 +342,13 @@ pub async fn read_template(
     name: String,
     state: State<'_, AppState>,
 ) -> Result<WireRequest, String> {
-    let col_path = state.collection_path.lock().await;
-    let wire_dir = col_path
-        .as_ref()
+    let wire_dir = state
+        .collection_path
+        .lock()
+        .await
+        .clone()
         .ok_or_else(|| "No collection open".to_string())?;
-    wire_core::collection::template::load_template(&name, wire_dir).map_err(|e| e.to_string())
+    wire_core::collection::template::load_template(&name, &wire_dir).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -378,9 +380,11 @@ pub async fn save_template(
         ));
     }
 
-    let col_path = state.collection_path.lock().await;
-    let wire_dir = col_path
-        .as_ref()
+    let wire_dir = state
+        .collection_path
+        .lock()
+        .await
+        .clone()
         .ok_or_else(|| "No collection open".to_string())?;
 
     let templates_dir = wire_dir.join("templates");
