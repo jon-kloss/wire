@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 ///   - field: body.name
 ///     contains: "Jon"
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Assertion {
     /// The field to test: status, elapsed_ms, body.path, header.name
     pub field: String,

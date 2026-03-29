@@ -207,7 +207,8 @@ fn resolve_template_inner(
 /// - Headers: additive (template + override; override wins on key conflict)
 /// - Params: additive (same as headers)
 /// - Body: top-level merge when both are JSON objects of same type; override wins otherwise
-/// - Tests: override wins entirely if non-empty
+/// - Tests: additive (template assertions first, then request assertions)
+/// - Response schema: additive (deduplicated)
 /// - extends: cleared (caller may re-set for informational purposes)
 fn merge_requests(base: &WireRequest, over: &WireRequest) -> WireRequest {
     // Headers: start with base, override with request
@@ -225,18 +226,17 @@ fn merge_requests(base: &WireRequest, over: &WireRequest) -> WireRequest {
     // Body: override wins if present; JSON object top-level merge
     let body = merge_body(&base.body, &over.body);
 
-    // Tests: override wins if non-empty
-    let tests = if over.tests.is_empty() {
-        base.tests.clone()
-    } else {
-        over.tests.clone()
-    };
+    // Tests: additive merge (template assertions + request assertions)
+    let mut tests = base.tests.clone();
+    tests.extend(over.tests.iter().cloned());
 
-    let response_schema = if over.response_schema.is_empty() {
-        base.response_schema.clone()
-    } else {
-        over.response_schema.clone()
-    };
+    // Response schema: additive merge
+    let mut response_schema = base.response_schema.clone();
+    for entry in &over.response_schema {
+        if !response_schema.contains(entry) {
+            response_schema.push(entry.clone());
+        }
+    }
 
     WireRequest {
         name: over.name.clone(),
@@ -1111,5 +1111,133 @@ mod tests {
 
         let resolved = resolve_with_default(request.clone(), &wire_dir, None).unwrap();
         assert_eq!(resolved, request); // unchanged
+    }
+
+    // --- Additive test merge ---
+
+    #[test]
+    fn merge_tests_additive() {
+        use crate::test::Assertion;
+
+        let base = WireRequest {
+            name: "Base".into(),
+            method: "GET".into(),
+            url: "".into(),
+            headers: HashMap::new(),
+            params: HashMap::new(),
+            body: None,
+            extends: None,
+            tests: vec![
+                Assertion {
+                    field: "status".into(),
+                    equals: Some(serde_json::json!(200)),
+                    ..Default::default()
+                },
+                Assertion {
+                    field: "header.content-type".into(),
+                    contains: Some("json".into()),
+                    ..Default::default()
+                },
+            ],
+            response_schema: vec![("id".into(), "int".into())],
+        };
+
+        let over = WireRequest {
+            name: "Request".into(),
+            method: "GET".into(),
+            url: "https://example.com/users".into(),
+            headers: HashMap::new(),
+            params: HashMap::new(),
+            body: None,
+            extends: None,
+            tests: vec![Assertion {
+                field: "body.users".into(),
+                is_array: Some(true),
+                ..Default::default()
+            }],
+            response_schema: vec![("name".into(), "string".into())],
+        };
+
+        let merged = merge_requests(&base, &over);
+        // All 3 assertions present (2 from template + 1 from request)
+        assert_eq!(merged.tests.len(), 3);
+        assert_eq!(merged.tests[0].field, "status");
+        assert_eq!(merged.tests[1].field, "header.content-type");
+        assert_eq!(merged.tests[2].field, "body.users");
+        // Both schemas merged
+        assert_eq!(merged.response_schema.len(), 2);
+    }
+
+    #[test]
+    fn merge_tests_request_only() {
+        use crate::test::Assertion;
+
+        let base = WireRequest {
+            name: "Base".into(),
+            method: "GET".into(),
+            url: "".into(),
+            headers: HashMap::new(),
+            params: HashMap::new(),
+            body: None,
+            extends: None,
+            tests: vec![],
+            response_schema: vec![],
+        };
+
+        let over = WireRequest {
+            name: "Request".into(),
+            method: "GET".into(),
+            url: "https://example.com".into(),
+            headers: HashMap::new(),
+            params: HashMap::new(),
+            body: None,
+            extends: None,
+            tests: vec![Assertion {
+                field: "status".into(),
+                equals: Some(serde_json::json!(200)),
+                ..Default::default()
+            }],
+            response_schema: vec![],
+        };
+
+        let merged = merge_requests(&base, &over);
+        assert_eq!(merged.tests.len(), 1);
+    }
+
+    #[test]
+    fn merge_tests_template_only() {
+        use crate::test::Assertion;
+
+        let base = WireRequest {
+            name: "Base".into(),
+            method: "GET".into(),
+            url: "".into(),
+            headers: HashMap::new(),
+            params: HashMap::new(),
+            body: None,
+            extends: None,
+            tests: vec![Assertion {
+                field: "status".into(),
+                equals: Some(serde_json::json!(200)),
+                ..Default::default()
+            }],
+            response_schema: vec![],
+        };
+
+        let over = WireRequest {
+            name: "Request".into(),
+            method: "GET".into(),
+            url: "https://example.com".into(),
+            headers: HashMap::new(),
+            params: HashMap::new(),
+            body: None,
+            extends: None,
+            tests: vec![],
+            response_schema: vec![],
+        };
+
+        let merged = merge_requests(&base, &over);
+        assert_eq!(merged.tests.len(), 1);
+        assert_eq!(merged.tests[0].field, "status");
     }
 }
