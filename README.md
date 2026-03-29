@@ -276,7 +276,8 @@ wire env check -d .wire               # validate secret references
 wire template list .wire              # list available templates
 wire history                           # view request history
 wire history clear                     # clear history
-wire setup                             # install Claude Code integration
+wire install-claude-skill               # install Claude Code integration
+wire uninstall-claude-skill            # remove Claude Code integration
 ```
 
 ### Claude Code Integration
@@ -284,7 +285,7 @@ wire setup                             # install Claude Code integration
 Wire ships with a [Claude Code](https://claude.ai/claude-code) skill that teaches Claude how to use Wire for HTTP requests, API testing, chaining, and more. This is optional — install it only if you use Claude Code.
 
 ```bash
-wire setup
+wire install-claude-skill
 ```
 
 This copies Wire's skill file to `~/.claude/commands/wire.md`. Once installed, Claude Code will automatically use Wire whenever it needs to:
@@ -296,7 +297,13 @@ This copies Wire's skill file to `~/.claude/commands/wire.md`. Once installed, C
 - Scan codebases for endpoints
 - Manage environment variables and secrets
 
-The skill is embedded in the Wire binary — no extra files or downloads needed. If you don't use Claude Code, simply don't run `wire setup`. It has no effect on Wire's functionality.
+The skill is embedded in the Wire binary — no extra files or downloads needed. To remove it:
+
+```bash
+wire uninstall-claude-skill
+```
+
+If you don't use Claude Code, simply don't run `wire install-claude-skill`. It has no effect on Wire's functionality.
 
 ### Tests
 

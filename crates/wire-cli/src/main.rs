@@ -97,10 +97,10 @@ enum Commands {
         #[command(subcommand)]
         action: EnvAction,
     },
-    /// Install Wire's Claude Code skill and configure integrations
-    Setup,
-    /// Remove Wire's Claude Code skill and clean up
-    Uninstall,
+    /// Install Wire's Claude Code skill to ~/.claude/commands/
+    InstallClaudeSkill,
+    /// Remove Wire's Claude Code skill from ~/.claude/commands/
+    UninstallClaudeSkill,
     /// View or manage request history
     History {
         #[command(subcommand)]
@@ -198,11 +198,11 @@ async fn main() {
             let exit_code = cmd_drift(&project_dir, &wire_dir, fix, &output);
             std::process::exit(exit_code);
         }
-        Commands::Setup => {
-            cmd_setup();
+        Commands::InstallClaudeSkill => {
+            cmd_install_claude_skill();
         }
-        Commands::Uninstall => {
-            cmd_uninstall();
+        Commands::UninstallClaudeSkill => {
+            cmd_uninstall_claude_skill();
         }
         Commands::Env { action } => match action {
             EnvAction::Check { wire_dir } => {
@@ -642,7 +642,7 @@ fn cmd_drift(project_dir: &str, wire_dir: &str, fix: bool, output: &str) -> i32 
     }
 }
 
-fn cmd_setup() {
+fn cmd_install_claude_skill() {
     println!("{}", "Wire Setup".cyan().bold());
     println!();
 
@@ -685,7 +685,7 @@ fn cmd_setup() {
     println!("{}", "Setup complete.".green().bold());
 }
 
-fn cmd_uninstall() {
+fn cmd_uninstall_claude_skill() {
     println!("{}", "Wire Uninstall".cyan().bold());
     println!();
 
