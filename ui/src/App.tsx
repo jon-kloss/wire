@@ -1346,6 +1346,7 @@ function App() {
                   headers,
                   params,
                   body,
+                  tests: currentAssertions.length > 0 ? currentAssertions : undefined,
                 };
                 await invoke("save_template", { name: selectedRequestName, request: tmpl });
                 const info = await invoke<IpcCollectionInfo>("open_collection", {
