@@ -503,6 +503,91 @@ pub async fn check_drift(
 }
 
 #[tauri::command]
+pub async fn fix_drift(
+    project_dir: String,
+    state: State<'_, AppState>,
+) -> Result<wire_core::drift::DriftReport, String> {
+    let scan_result =
+        wire_core::scan::scan_project(Path::new(&project_dir)).map_err(|e| e.to_string())?;
+
+    let (requests, wire_dir) = {
+        let col_guard = state.collection.lock().await;
+        let collection = col_guard
+            .as_ref()
+            .ok_or_else(|| "No collection open".to_string())?;
+        (collection.requests.clone(), {
+            let p = state.collection_path.lock().await;
+            p.clone().ok_or_else(|| "No collection path".to_string())?
+        })
+    };
+
+    let report = wire_core::drift::compare(&scan_result.endpoints, &requests);
+    let requests_dir = wire_dir.join("requests");
+    let _ = std::fs::create_dir_all(&requests_dir);
+
+    for item in &report.items {
+        match item.category {
+            wire_core::drift::DriftCategory::New => {
+                if let Some(ep) = scan_result
+                    .endpoints
+                    .iter()
+                    .find(|ep| ep.method == item.method && ep.route == item.route)
+                {
+                    let slug = item
+                        .name
+                        .replace(|c: char| !c.is_alphanumeric() && c != '-', "-")
+                        .to_lowercase();
+                    let mut file_path = requests_dir.join(format!("{slug}.wire.yaml"));
+                    if file_path.exists() {
+                        file_path = requests_dir
+                            .join(format!("{}-{slug}.wire.yaml", item.method.to_lowercase()));
+                    }
+                    if !file_path.exists() {
+                        let request = wire_core::scan::endpoint_to_request(ep);
+                        if let Ok(yaml) = serde_yaml::to_string(&request) {
+                            let _ = std::fs::write(&file_path, yaml);
+                        }
+                    }
+                }
+            }
+            wire_core::drift::DriftCategory::Changed => {
+                if let Some(ref req_path) = item.request_path {
+                    if let Some(ep) = scan_result
+                        .endpoints
+                        .iter()
+                        .find(|ep| ep.method == item.method && ep.route == item.route)
+                    {
+                        let request = wire_core::scan::endpoint_to_request(ep);
+                        if let Ok(yaml) = serde_yaml::to_string(&request) {
+                            let _ = std::fs::write(req_path, yaml);
+                        }
+                    }
+                }
+            }
+            wire_core::drift::DriftCategory::Stale => {
+                if let Some(ref req_path) = item.request_path {
+                    let _ = std::fs::remove_file(req_path);
+                }
+            }
+        }
+    }
+
+    // Reload collection after changes
+    let reloaded = wire_core::collection::load_collection(&wire_dir).map_err(|e| e.to_string())?;
+    *state.collection.lock().await = Some(reloaded);
+
+    // Return fresh drift report (should be empty now)
+    let requests = state
+        .collection
+        .lock()
+        .await
+        .as_ref()
+        .map(|c| c.requests.clone())
+        .unwrap_or_default();
+    Ok(wire_core::drift::compare(&scan_result.endpoints, &requests))
+}
+
+#[tauri::command]
 pub async fn evaluate_tests(
     assertions: Vec<Assertion>,
     response: IpcResponse,

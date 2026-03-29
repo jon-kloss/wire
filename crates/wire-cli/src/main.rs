@@ -478,44 +478,95 @@ fn cmd_drift(project_dir: &str, wire_dir: &str, fix: bool, output: &str) -> i32 
         print_drift_report(&report);
     }
 
-    // --fix: generate stubs for new endpoints
-    if fix && report.new_count > 0 {
+    // --fix: sync collection to match code
+    if fix && report.has_drift() {
+        println!();
+        println!("{}", "Fixing drift...".bold());
+
         let requests_dir = wire_path.join("requests");
         let _ = std::fs::create_dir_all(&requests_dir);
 
         for item in &report.items {
-            if item.category != drift::DriftCategory::New {
-                continue;
-            }
-            let slug = item
-                .name
-                .replace(|c: char| !c.is_alphanumeric() && c != '-', "-")
-                .to_lowercase();
-            let file_path = requests_dir.join(format!("{slug}.wire.yaml"));
-            if file_path.exists() {
-                continue;
-            }
-
-            // Find the endpoint to generate the stub
-            if let Some(ep) = scan_result
-                .endpoints
-                .iter()
-                .find(|ep| ep.method == item.method && ep.route == item.route)
-            {
-                let request = wire_core::scan::endpoint_to_request(ep);
-                match serde_yaml::to_string(&request) {
-                    Ok(yaml) => {
-                        if let Err(e) = std::fs::write(&file_path, yaml) {
-                            eprintln!(
-                                "  {} Failed to write {}: {e}",
-                                "!".yellow(),
-                                file_path.display()
-                            );
-                        } else {
-                            println!("  {} {}", "+".green().bold(), file_path.display());
+            match item.category {
+                drift::DriftCategory::New => {
+                    // Add missing request files
+                    let slug = item
+                        .name
+                        .replace(|c: char| !c.is_alphanumeric() && c != '-', "-")
+                        .to_lowercase();
+                    let file_path = requests_dir.join(format!("{slug}.wire.yaml"));
+                    if file_path.exists() {
+                        // Try with method prefix to avoid collision
+                        let file_path = requests_dir
+                            .join(format!("{}-{slug}.wire.yaml", item.method.to_lowercase()));
+                        if file_path.exists() {
+                            continue;
+                        }
+                        if let Some(ep) = scan_result
+                            .endpoints
+                            .iter()
+                            .find(|ep| ep.method == item.method && ep.route == item.route)
+                        {
+                            let request = wire_core::scan::endpoint_to_request(ep);
+                            if let Ok(yaml) = serde_yaml::to_string(&request) {
+                                if std::fs::write(&file_path, yaml).is_ok() {
+                                    println!(
+                                        "  {} {} {}",
+                                        "+".green().bold(),
+                                        "added".green(),
+                                        file_path.display()
+                                    );
+                                }
+                            }
+                        }
+                    } else if let Some(ep) = scan_result
+                        .endpoints
+                        .iter()
+                        .find(|ep| ep.method == item.method && ep.route == item.route)
+                    {
+                        let request = wire_core::scan::endpoint_to_request(ep);
+                        if let Ok(yaml) = serde_yaml::to_string(&request) {
+                            if std::fs::write(&file_path, yaml).is_ok() {
+                                println!(
+                                    "  {} {} {}",
+                                    "+".green().bold(),
+                                    "added".green(),
+                                    file_path.display()
+                                );
+                            }
                         }
                     }
-                    Err(e) => eprintln!("  {} Failed to serialize: {e}", "!".yellow()),
+                }
+                drift::DriftCategory::Changed => {
+                    // Update existing request with fresh endpoint data
+                    if let Some(ref req_path) = item.request_path {
+                        if let Some(ep) = scan_result
+                            .endpoints
+                            .iter()
+                            .find(|ep| ep.method == item.method && ep.route == item.route)
+                        {
+                            let request = wire_core::scan::endpoint_to_request(ep);
+                            if let Ok(yaml) = serde_yaml::to_string(&request) {
+                                if std::fs::write(req_path, yaml).is_ok() {
+                                    println!(
+                                        "  {} {} {}",
+                                        "~".yellow().bold(),
+                                        "updated".yellow(),
+                                        req_path
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                drift::DriftCategory::Stale => {
+                    // Remove request files for endpoints no longer in code
+                    if let Some(ref req_path) = item.request_path {
+                        let path = Path::new(req_path);
+                        if path.exists() && std::fs::remove_file(path).is_ok() {
+                            println!("  {} {} {}", "-".red().bold(), "removed".red(), req_path);
+                        }
+                    }
                 }
             }
         }

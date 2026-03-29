@@ -1261,6 +1261,26 @@
   color: #dcdcaa;
 }
 
+.drift-sync-btn {
+  background: #007acc;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.drift-sync-btn:hover {
+  background: #0098ff;
+}
+
+.drift-sync-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .drift-results {
   overflow-y: auto;
 }

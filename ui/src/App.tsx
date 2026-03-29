@@ -1403,6 +1403,36 @@ function App() {
                   {driftReport.changed_count > 0 && (
                     <span className="drift-badge drift-changed">~{driftReport.changed_count} changed</span>
                   )}
+                  <button
+                    className="drift-sync-btn"
+                    disabled={driftLoading}
+                    onClick={async () => {
+                      setDriftLoading(true);
+                      try {
+                        const report = await invoke<DriftReport>("fix_drift", {
+                          projectDir: driftProjectDir,
+                        });
+                        setDriftReport(report);
+                        // Refresh collection sidebar
+                        if (activeCollectionPath) {
+                          const info = await invoke<IpcCollectionInfo>("open_collection", {
+                            wireDir: activeCollectionPath,
+                          });
+                          setCollections((prev) =>
+                            prev.map((c) =>
+                              c.path === activeCollectionPath ? { info, path: c.path } : c
+                            )
+                          );
+                        }
+                      } catch (err) {
+                        setError(typeof err === "string" ? err : String(err));
+                      } finally {
+                        setDriftLoading(false);
+                      }
+                    }}
+                  >
+                    {driftLoading ? "Syncing..." : "Sync All"}
+                  </button>
                 </div>
                 {driftReport.items.map((item, i) => (
                   <div key={i} className={`drift-item drift-${item.category}`}>

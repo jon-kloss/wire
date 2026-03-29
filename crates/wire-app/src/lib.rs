@@ -29,6 +29,7 @@ pub fn run() {
             commands::save_template,
             commands::delete_template,
             commands::check_drift,
+            commands::fix_drift,
             commands::toggle_default_template,
         ])
         .run(tauri::generate_context!())
