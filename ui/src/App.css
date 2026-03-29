@@ -49,16 +49,12 @@
   color: #888;
   border: none;
   border-bottom: 2px solid transparent;
-  padding: 8px 8px;
-  font-size: 11px;
+  padding: 8px 6px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
+  text-align: center;
 }
 
 .sidebar-tab:hover {
