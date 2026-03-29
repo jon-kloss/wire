@@ -710,6 +710,12 @@
   font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
 }
 
+.test-assertion-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .test-assertion-add {
   background: transparent;
   border: 1px dashed #555;
@@ -719,12 +725,72 @@
   font-size: 12px;
   cursor: pointer;
   text-align: left;
-  margin-top: 8px;
 }
 
 .test-assertion-add:hover {
   color: #d4d4d4;
   border-color: #888;
+}
+
+.test-assertion-from-response {
+  border-style: solid;
+  border-color: #007acc;
+  color: #4ec9b0;
+}
+
+.test-assertion-from-response:hover {
+  background: rgba(0, 122, 204, 0.1);
+  color: #4ec9b0;
+  border-color: #007acc;
+}
+
+.response-fields-picker {
+  position: relative;
+}
+
+.response-fields-dropdown {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  background: #2d2d2d;
+  border: 1px solid #555;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 50;
+  max-height: 300px;
+  overflow-y: auto;
+  min-width: 320px;
+}
+
+.response-field-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  color: #d4d4d4;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+}
+
+.response-field-item:hover {
+  background: #094771;
+}
+
+.response-field-path {
+  color: #9cdcfe;
+}
+
+.response-field-value {
+  color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
 }
 
 .test-results-summary-bar {

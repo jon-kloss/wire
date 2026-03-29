@@ -26,6 +26,40 @@ import "./App.css";
 
 const MonacoEditor = lazy(() => import("@monaco-editor/react"));
 
+/** Recursively extract dotpaths from a JSON value */
+function extractJsonPaths(
+  value: unknown,
+  prefix: string,
+  out: Array<{ path: string; value: string }>,
+  maxDepth: number
+) {
+  if (maxDepth <= 0) return;
+
+  if (value === null || value === undefined) {
+    out.push({ path: prefix, value: "null" });
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    out.push({ path: prefix, value: `[${value.length} items]` });
+    for (let i = 0; i < Math.min(value.length, 5); i++) {
+      extractJsonPaths(value[i], `${prefix}[${i}]`, out, maxDepth - 1);
+    }
+    return;
+  }
+
+  if (typeof value === "object") {
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      extractJsonPaths(val, `${prefix}.${key}`, out, maxDepth - 1);
+    }
+    return;
+  }
+
+  // Primitive
+  const display = typeof value === "string" ? value : String(value);
+  out.push({ path: prefix, value: display.length > 60 ? display.slice(0, 57) + "..." : display });
+}
+
 function TreeItem({
   node,
   depth,
@@ -665,6 +699,35 @@ function App() {
       return next;
     });
   }, []);
+
+  // Extract dotpaths from a response for the assertion field picker
+  const [responseFieldsOpen, setResponseFieldsOpen] = useState(false);
+
+  const extractResponseFields = useCallback((): Array<{ path: string; value: string }> => {
+    if (!response) return [];
+    const fields: Array<{ path: string; value: string }> = [];
+
+    // Status
+    fields.push({ path: "status", value: String(response.status) });
+
+    // Elapsed
+    fields.push({ path: "elapsed_ms", value: String(response.elapsed_ms) });
+
+    // Headers
+    for (const [key, value] of Object.entries(response.headers)) {
+      fields.push({ path: `header.${key}`, value });
+    }
+
+    // Body fields
+    try {
+      const body = JSON.parse(response.body);
+      extractJsonPaths(body, "body", fields, 3);
+    } catch {
+      // non-JSON body
+    }
+
+    return fields;
+  }, [response]);
 
   // Helpers for assertion editor
   const getAssertionOperator = (a: Assertion): string => {
@@ -1338,17 +1401,59 @@ function App() {
                       </div>
                     );
                   })}
-                  <button
-                    className="test-assertion-add"
-                    onClick={() =>
-                      setCurrentAssertions([
-                        ...currentAssertions,
-                        { field: "status", equals: 200 },
-                      ])
-                    }
-                  >
-                    + Add Assertion
-                  </button>
+                  <div className="test-assertion-actions">
+                    <button
+                      className="test-assertion-add"
+                      onClick={() =>
+                        setCurrentAssertions([
+                          ...currentAssertions,
+                          { field: "status", equals: 200 },
+                        ])
+                      }
+                    >
+                      + Add Assertion
+                    </button>
+                    {response && (
+                      <div className="response-fields-picker">
+                        <button
+                          className="test-assertion-add test-assertion-from-response"
+                          onClick={() => setResponseFieldsOpen(!responseFieldsOpen)}
+                        >
+                          + Add from Response &#x25BE;
+                        </button>
+                        {responseFieldsOpen && (
+                          <>
+                            <div
+                              className="dropdown-backdrop"
+                              onClick={() => setResponseFieldsOpen(false)}
+                            />
+                            <div className="response-fields-dropdown">
+                              {extractResponseFields().map((field, i) => (
+                                <button
+                                  key={i}
+                                  className="response-field-item"
+                                  onClick={() => {
+                                    const num = Number(field.value);
+                                    const val = !isNaN(num) && field.value.trim() !== ""
+                                      ? num
+                                      : field.value;
+                                    setCurrentAssertions([
+                                      ...currentAssertions,
+                                      { field: field.path, equals: val },
+                                    ]);
+                                    setResponseFieldsOpen(false);
+                                  }}
+                                >
+                                  <span className="response-field-path">{field.path}</span>
+                                  <span className="response-field-value">{field.value}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {testResults.length > 0 && (
                   <div className="test-results-summary-bar">
