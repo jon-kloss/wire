@@ -690,10 +690,10 @@ fn cmd_install_claude_skill() {
         .unwrap_or(false);
 
     if !already_present {
-        // Back up existing CLAUDE.md before modifying
+        // Back up existing CLAUDE.md before modifying (only if no backup exists yet)
         if claude_md_path.exists() {
             let backup_path = claude_dir.join("CLAUDE.md.wire-backup");
-            if std::fs::copy(&claude_md_path, &backup_path).is_ok() {
+            if !backup_path.exists() && std::fs::copy(&claude_md_path, &backup_path).is_ok() {
                 println!(
                     "  {} Backed up CLAUDE.md to {}",
                     "\u{2713}".green().bold(),
