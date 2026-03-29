@@ -1172,7 +1172,10 @@ function App() {
           </button>
         </div>
         {extendsTemplate && (
-          <div className="template-badge">
+          <div
+            className="template-badge"
+            data-tooltip={`Inherits headers, params, and body defaults from template "${extendsTemplate}"`}
+          >
             <span className="template-badge-label">extends</span>
             <span className="template-badge-name">{extendsTemplate}</span>
           </div>

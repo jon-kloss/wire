@@ -1024,6 +1024,28 @@
   font-weight: 600;
 }
 
+.template-badge {
+  position: relative;
+  cursor: default;
+}
+
+.template-badge:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 12px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
 /* Tabs */
 .request-tabs {
   flex: 1;
