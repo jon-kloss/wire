@@ -55,6 +55,63 @@ pub fn resolve_secret(secret: &SecretRef, project_dir: Option<&Path>) -> Result<
     }
 }
 
+/// Result of checking a single secret reference.
+#[derive(Debug, Clone)]
+pub struct SecretCheckResult {
+    pub env_name: String,
+    pub var_name: String,
+    pub source: String,
+    pub key: String,
+    pub resolved: bool,
+    pub error: Option<String>,
+}
+
+/// Check all secret references in a collection's environments.
+/// Returns a list of check results (both passed and failed).
+pub fn check_collection_secrets(
+    environments: &std::collections::HashMap<String, crate::collection::Environment>,
+    project_dir: Option<&Path>,
+) -> Vec<SecretCheckResult> {
+    let mut results = Vec::new();
+
+    let mut env_names: Vec<&String> = environments.keys().collect();
+    env_names.sort();
+
+    for env_name in env_names {
+        let env = &environments[env_name];
+        let mut var_names: Vec<&String> = env.variables.keys().collect();
+        var_names.sort();
+
+        for var_name in var_names {
+            let value = &env.variables[var_name];
+            if let Some(secret_ref) = parse_secret_ref(value) {
+                let source = format!("{:?}", secret_ref.source).to_lowercase();
+                let key = secret_ref.key.clone();
+                match resolve_secret(&secret_ref, project_dir) {
+                    Ok(_) => results.push(SecretCheckResult {
+                        env_name: env_name.clone(),
+                        var_name: var_name.clone(),
+                        source,
+                        key,
+                        resolved: true,
+                        error: None,
+                    }),
+                    Err(e) => results.push(SecretCheckResult {
+                        env_name: env_name.clone(),
+                        var_name: var_name.clone(),
+                        source,
+                        key,
+                        resolved: false,
+                        error: Some(e.to_string()),
+                    }),
+                }
+            }
+        }
+    }
+
+    results
+}
+
 /// Check if a value is a secret reference without resolving it.
 pub fn is_secret(value: &str) -> bool {
     value.starts_with("$env:")

@@ -358,3 +358,80 @@ fn chain_run_nonexistent_file_fails() {
         .failure()
         .stderr(predicate::str::contains("Error"));
 }
+
+// --- Env check tests ---
+
+#[test]
+fn env_check_with_env_secrets() {
+    let dir = TempDir::new().unwrap();
+    let wire_dir = dir.path().join(".wire");
+    fs::create_dir_all(wire_dir.join("envs")).unwrap();
+    fs::write(wire_dir.join("wire.yaml"), "name: Test\nversion: 1\n").unwrap();
+
+    // Set an env var that the secret ref points to
+    std::env::set_var("WIRE_ENV_CHECK_TEST", "resolved");
+
+    fs::write(
+        wire_dir.join("envs/dev.yaml"),
+        "name: Dev\nvariables:\n  base_url: https://example.com\n  token: $env:WIRE_ENV_CHECK_TEST\n",
+    )
+    .unwrap();
+
+    wire_cmd()
+        .arg("env")
+        .arg("check")
+        .arg("-d")
+        .arg(wire_dir.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("secret reference"))
+        .stdout(predicate::str::contains("resolved successfully"));
+
+    std::env::remove_var("WIRE_ENV_CHECK_TEST");
+}
+
+#[test]
+fn env_check_missing_secret_fails() {
+    let dir = TempDir::new().unwrap();
+    let wire_dir = dir.path().join(".wire");
+    fs::create_dir_all(wire_dir.join("envs")).unwrap();
+    fs::write(wire_dir.join("wire.yaml"), "name: Test\nversion: 1\n").unwrap();
+
+    fs::write(
+        wire_dir.join("envs/prod.yaml"),
+        "name: Prod\nvariables:\n  secret_key: $env:WIRE_TOTALLY_MISSING_VAR_XYZ\n",
+    )
+    .unwrap();
+
+    wire_cmd()
+        .arg("env")
+        .arg("check")
+        .arg("-d")
+        .arg(wire_dir.to_str().unwrap())
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("failed to resolve"));
+}
+
+#[test]
+fn env_check_no_secrets_shows_message() {
+    let dir = TempDir::new().unwrap();
+    let wire_dir = dir.path().join(".wire");
+    fs::create_dir_all(wire_dir.join("envs")).unwrap();
+    fs::write(wire_dir.join("wire.yaml"), "name: Test\nversion: 1\n").unwrap();
+
+    fs::write(
+        wire_dir.join("envs/dev.yaml"),
+        "name: Dev\nvariables:\n  base_url: https://example.com\n",
+    )
+    .unwrap();
+
+    wire_cmd()
+        .arg("env")
+        .arg("check")
+        .arg("-d")
+        .arg(wire_dir.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No secret references"));
+}

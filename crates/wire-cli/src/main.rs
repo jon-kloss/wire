@@ -92,6 +92,11 @@ enum Commands {
         #[arg(short = 'o', long)]
         output: Option<String>,
     },
+    /// Manage environments and validate secrets
+    Env {
+        #[command(subcommand)]
+        action: EnvAction,
+    },
     /// View or manage request history
     History {
         #[command(subcommand)]
@@ -101,6 +106,16 @@ enum Commands {
         #[arg(short, long, default_value = "50")]
         limit: usize,
 
+        /// Path to .wire collection directory
+        #[arg(short = 'd', long, default_value = ".wire")]
+        wire_dir: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum EnvAction {
+    /// Validate all secret references in collection environments
+    Check {
         /// Path to .wire collection directory
         #[arg(short = 'd', long, default_value = ".wire")]
         wire_dir: String,
@@ -179,6 +194,12 @@ async fn main() {
             let exit_code = cmd_drift(&project_dir, &wire_dir, fix, &output);
             std::process::exit(exit_code);
         }
+        Commands::Env { action } => match action {
+            EnvAction::Check { wire_dir } => {
+                let exit_code = cmd_env_check(&wire_dir);
+                std::process::exit(exit_code);
+            }
+        },
         Commands::Generate {
             project_dir,
             output,
@@ -608,6 +629,104 @@ fn cmd_drift(project_dir: &str, wire_dir: &str, fix: bool, output: &str) -> i32 
         1
     } else {
         0
+    }
+}
+
+fn cmd_env_check(wire_dir: &str) -> i32 {
+    let wire_path = Path::new(wire_dir);
+    if !wire_path.is_dir() {
+        eprintln!("{}: directory not found: {wire_dir}", "Error".red().bold());
+        return 1;
+    }
+
+    let collection = match load_collection(wire_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{}: {e}", "Error".red().bold());
+            return 1;
+        }
+    };
+
+    if collection.environments.is_empty() {
+        println!("{}", "No environments found.".dimmed());
+        return 0;
+    }
+
+    // Derive project dir from wire_dir parent (for .env discovery)
+    let project_dir = wire_path.parent();
+
+    let results = wire_core::variables::secrets::check_collection_secrets(
+        &collection.environments,
+        project_dir,
+    );
+
+    if results.is_empty() {
+        println!(
+            "{}",
+            "No secret references found in any environment.".dimmed()
+        );
+        return 0;
+    }
+
+    println!(
+        "{} {} secret reference(s)",
+        "Checking".cyan().bold(),
+        results.len()
+    );
+    println!();
+
+    let mut current_env = String::new();
+    let mut failures = 0;
+
+    for result in &results {
+        if result.env_name != current_env {
+            if !current_env.is_empty() {
+                println!();
+            }
+            println!("  {}", result.env_name.bold());
+            current_env = result.env_name.clone();
+        }
+
+        if result.resolved {
+            println!(
+                "    {} {} (${}: {})",
+                "\u{2713}".green().bold(),
+                result.var_name,
+                result.source,
+                result.key.dimmed(),
+            );
+        } else {
+            failures += 1;
+            println!(
+                "    {} {} (${}: {})",
+                "\u{2717}".red().bold(),
+                result.var_name,
+                result.source,
+                result.key.dimmed(),
+            );
+            if let Some(ref err) = result.error {
+                println!("      {}", err.red());
+            }
+        }
+    }
+
+    println!();
+    let passed = results.len() - failures;
+    if failures == 0 {
+        println!(
+            "{} All {} secret(s) resolved successfully",
+            "\u{2713}".green().bold(),
+            passed
+        );
+        0
+    } else {
+        println!(
+            "{} {}/{} secret(s) failed to resolve",
+            "\u{2717}".red().bold(),
+            failures,
+            results.len()
+        );
+        1
     }
 }
 
