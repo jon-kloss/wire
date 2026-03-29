@@ -1,3 +1,4 @@
+use crate::chain::ChainStep;
 use crate::test::Assertion;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -22,6 +23,9 @@ pub struct WireRequest {
     /// Expected response fields from codebase scan (field_name, type_hint)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub response_schema: Vec<(String, String)>,
+    /// Chain steps for multi-request flows
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chain: Vec<ChainStep>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

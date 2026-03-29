@@ -303,6 +303,7 @@ mod tests {
                 extends: None,
                 tests: Vec::new(),
                 response_schema: Vec::new(),
+                chain: Vec::new(),
             },
         )
     }

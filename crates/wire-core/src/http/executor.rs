@@ -119,6 +119,7 @@ mod tests {
             extends: None,
             tests: Vec::new(),
             response_schema: Vec::new(),
+            chain: Vec::new(),
         }
     }
 
@@ -148,6 +149,7 @@ mod tests {
             extends: None,
             tests: Vec::new(),
             response_schema: Vec::new(),
+            chain: Vec::new(),
         };
 
         let mut scope = VariableScope::new();
@@ -185,6 +187,7 @@ mod tests {
             extends: None,
             tests: Vec::new(),
             response_schema: Vec::new(),
+            chain: Vec::new(),
         };
         let scope = VariableScope::new();
 
@@ -210,6 +213,7 @@ mod tests {
             extends: None,
             tests: Vec::new(),
             response_schema: Vec::new(),
+            chain: Vec::new(),
         };
 
         let mut scope = VariableScope::new();

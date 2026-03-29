@@ -1,3 +1,4 @@
+pub mod chain;
 pub mod collection;
 pub mod drift;
 pub mod error;
@@ -54,6 +55,7 @@ params:
             extends: None,
             tests: Vec::new(),
             response_schema: Vec::new(),
+            chain: Vec::new(),
         })
         .unwrap();
         let reparsed: WireRequest = serde_yaml::from_str(&serialized).unwrap();

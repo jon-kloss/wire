@@ -163,6 +163,7 @@ pub fn endpoint_to_request(endpoint: &DiscoveredEndpoint) -> WireRequest {
         extends: None,
         tests: Vec::new(),
         response_schema: endpoint.response_fields.clone(),
+        chain: Vec::new(),
     }
 }
 
