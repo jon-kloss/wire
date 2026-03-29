@@ -120,6 +120,38 @@ pub fn is_secret(value: &str) -> bool {
         || value.starts_with("$vault:")
 }
 
+/// Mask a secret value for display.
+pub fn mask_value(value: &str) -> String {
+    if value.is_empty() {
+        return String::new();
+    }
+    let visible = std::cmp::min(4, value.len() / 4);
+    if visible == 0 || value.len() < 8 {
+        "*".repeat(value.len().min(8))
+    } else {
+        format!("{}{}", &value[..visible], "*".repeat(8))
+    }
+}
+
+/// Find which variable names in a scope have secret values.
+/// Returns the set of variable names whose values start with a secret prefix.
+pub fn find_secret_var_names(
+    environments: &std::collections::HashMap<String, crate::collection::Environment>,
+    active_env: Option<&str>,
+) -> std::collections::HashSet<String> {
+    let mut secret_names = std::collections::HashSet::new();
+    if let Some(env_key) = active_env {
+        if let Some(env) = environments.get(env_key) {
+            for (name, value) in &env.variables {
+                if is_secret(value) {
+                    secret_names.insert(name.clone());
+                }
+            }
+        }
+    }
+    secret_names
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,5 +300,47 @@ mod tests {
             resolve_secret(&r2, Some(dir.path())).unwrap(),
             "double-quoted"
         );
+    }
+
+    #[test]
+    fn mask_short_value() {
+        assert_eq!(mask_value("abc"), "***");
+        assert_eq!(mask_value("abcdef"), "******");
+    }
+
+    #[test]
+    fn mask_long_value() {
+        let masked = mask_value("super-secret-token-12345");
+        // First few chars visible, rest masked
+        assert!(masked.starts_with("supe"));
+        assert!(masked.contains("*"));
+        assert_ne!(masked, "super-secret-token-12345");
+    }
+
+    #[test]
+    fn mask_empty_value() {
+        assert_eq!(mask_value(""), "");
+    }
+
+    #[test]
+    fn find_secret_names_in_env() {
+        let mut envs = std::collections::HashMap::new();
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("base_url".to_string(), "https://example.com".to_string());
+        vars.insert("api_key".to_string(), "$env:API_KEY".to_string());
+        vars.insert("db_pass".to_string(), "$dotenv:DB_PASS".to_string());
+        envs.insert(
+            "dev".to_string(),
+            crate::collection::Environment {
+                name: "Dev".to_string(),
+                variables: vars,
+            },
+        );
+
+        let names = find_secret_var_names(&envs, Some("dev"));
+        assert!(names.contains("api_key"));
+        assert!(names.contains("db_pass"));
+        assert!(!names.contains("base_url"));
+        assert_eq!(names.len(), 2);
     }
 }

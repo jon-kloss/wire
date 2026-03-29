@@ -207,6 +207,13 @@ function App() {
   const [chainLoading, setChainLoading] = useState(false);
   const [expandedChainSteps, setExpandedChainSteps] = useState<Set<number>>(new Set());
 
+  // Secret masking state
+  const [secretsRevealed, setSecretsRevealed] = useState(false);
+
+  /** Check if a raw env var value is a secret reference */
+  const isSecretValue = (val: string) =>
+    val.startsWith("$env:") || val.startsWith("$dotenv:") || val.startsWith("$aws:") || val.startsWith("$vault:");
+
   // History state
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
@@ -1091,19 +1098,25 @@ function App() {
                                   envVarsMap[path] &&
                                   Object.keys(envVarsMap[path]).length > 0 && (
                                     <div className="env-vars-editor">
-                                      {Object.entries(envVarsMap[path]).map(([key, value]) => (
+                                      {Object.entries(envVarsMap[path]).map(([key, value]) => {
+                                        const isSecret = isSecretValue(value);
+                                        return (
                                         <div key={key} className="env-var-row">
-                                          <label className="env-var-label">{key}</label>
+                                          <label className="env-var-label">
+                                            {isSecret && <span className="secret-badge" title="Secret reference">{"\uD83D\uDD12"}</span>}
+                                            {key}
+                                          </label>
                                           <input
-                                            className="env-var-input"
-                                            type="text"
+                                            className={`env-var-input ${isSecret && !secretsRevealed ? "masked" : ""}`}
+                                            type={isSecret && !secretsRevealed ? "password" : "text"}
                                             value={value}
                                             onChange={(e) =>
                                               handleSaveEnvVar(path, envSelectedMap[path]!, key, e.target.value)
                                             }
                                           />
                                         </div>
-                                      ))}
+                                        );
+                                      })}
                                     </div>
                                   )}
                               </div>
@@ -1633,6 +1646,13 @@ function App() {
           )}
           <button className="save-btn" onClick={handleSaveRequest}>
             Save
+          </button>
+          <button
+            className={`secrets-toggle-btn ${secretsRevealed ? "revealed" : ""}`}
+            onClick={() => setSecretsRevealed(!secretsRevealed)}
+            title={secretsRevealed ? "Hide secret values" : "Reveal secret values"}
+          >
+            {secretsRevealed ? "\uD83D\uDD13" : "\uD83D\uDD12"}
           </button>
           {activeCollectionPath && (
             <button

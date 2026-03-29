@@ -1540,6 +1540,35 @@
   background: #1177bb;
 }
 
+/* Secrets toggle */
+.secrets-toggle-btn {
+  background: transparent;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.secrets-toggle-btn:hover {
+  background: #3c3c3c;
+}
+
+.secrets-toggle-btn.revealed {
+  border-color: #d7ba7d;
+  background: rgba(215, 186, 125, 0.1);
+}
+
+.secret-badge {
+  font-size: 10px;
+  margin-right: 4px;
+}
+
+.env-var-input.masked {
+  color: #808080;
+}
+
 /* Chain button */
 .chain-btn {
   background: #68217a;
