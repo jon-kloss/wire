@@ -2,6 +2,7 @@ mod env;
 mod loader;
 mod request;
 
+pub use crate::test::Assertion;
 pub use env::Environment;
 pub use loader::{
     create_collection, load_collection, load_request, rename_collection, LoadedCollection,

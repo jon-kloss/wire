@@ -1,3 +1,4 @@
+use crate::test::Assertion;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -14,6 +15,8 @@ pub struct WireRequest {
     pub params: HashMap<String, String>,
     #[serde(default)]
     pub body: Option<Body>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tests: Vec<Assertion>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

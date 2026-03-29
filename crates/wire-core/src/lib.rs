@@ -3,6 +3,7 @@ pub mod error;
 pub mod history;
 pub mod http;
 pub mod scan;
+pub mod test;
 pub mod variables;
 
 #[cfg(test)]
@@ -49,6 +50,7 @@ params:
             headers: request.headers.clone(),
             params: request.params.clone(),
             body: Some(body.clone()),
+            tests: Vec::new(),
         })
         .unwrap();
         let reparsed: WireRequest = serde_yaml::from_str(&serialized).unwrap();

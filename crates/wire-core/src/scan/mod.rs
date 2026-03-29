@@ -155,6 +155,7 @@ fn endpoint_to_request(endpoint: &DiscoveredEndpoint) -> WireRequest {
         headers,
         params,
         body,
+        tests: Vec::new(),
     }
 }
 
