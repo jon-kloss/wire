@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use std::path::Path;
-use wire_core::collection::{list_templates, load_collection, load_request_resolved};
+use wire_core::chain;
+use wire_core::collection::{list_templates, load_collection, load_request, load_request_resolved};
 use wire_core::drift;
 use wire_core::history::{self, HistoryEntry};
 use wire_core::http::{execute, HttpClient};
@@ -55,6 +56,11 @@ enum Commands {
         #[arg(short, long, default_value = "text")]
         output: String,
     },
+    /// Execute a request chain (multi-step API flow)
+    Chain {
+        #[command(subcommand)]
+        action: ChainAction,
+    },
     /// Manage request templates
     Template {
         #[command(subcommand)]
@@ -94,6 +100,23 @@ enum Commands {
         /// Maximum number of entries to show
         #[arg(short, long, default_value = "50")]
         limit: usize,
+
+        /// Path to .wire collection directory
+        #[arg(short = 'd', long, default_value = ".wire")]
+        wire_dir: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ChainAction {
+    /// Run a request chain defined in a .wire.yaml file
+    Run {
+        /// Path to a .wire.yaml file containing a chain section
+        file: String,
+
+        /// Environment to use (e.g., dev, prod)
+        #[arg(short, long)]
+        env: Option<String>,
 
         /// Path to .wire collection directory
         #[arg(short = 'd', long, default_value = ".wire")]
@@ -163,6 +186,16 @@ async fn main() {
             let exit_code = cmd_generate(&project_dir, output.as_deref());
             std::process::exit(exit_code);
         }
+        Commands::Chain { action } => match action {
+            ChainAction::Run {
+                file,
+                env,
+                wire_dir,
+            } => {
+                let exit_code = cmd_chain_run(&file, env.as_deref(), &wire_dir).await;
+                std::process::exit(exit_code);
+            }
+        },
         Commands::Template { action } => match action {
             TemplateAction::List { dir } => {
                 if let Err(e) = cmd_template_list(&dir) {
@@ -675,6 +708,132 @@ fn cmd_generate(project_dir: &str, output: Option<&str>) -> i32 {
     );
 
     0
+}
+
+async fn cmd_chain_run(file: &str, env_name: Option<&str>, wire_dir: &str) -> i32 {
+    let wire_path = Path::new(wire_dir);
+
+    // Load the request file
+    let request = match load_request(Path::new(file)) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("{}: {e}", "Error".red().bold());
+            return 1;
+        }
+    };
+
+    if request.chain.is_empty() {
+        eprintln!(
+            "{}: no chain section found in {}",
+            "Error".red().bold(),
+            file
+        );
+        return 1;
+    }
+
+    // Build variable scope from environment
+    let mut scope = VariableScope::new();
+    if wire_path.is_dir() {
+        if let Ok(collection) = load_collection(wire_path) {
+            let active_env = env_name
+                .map(|s| s.to_string())
+                .or(collection.metadata.active_env);
+
+            if let Some(env_key) = &active_env {
+                if let Some(environment) = collection.environments.get(env_key) {
+                    scope.push_layer(environment.variables.clone());
+                } else {
+                    eprintln!(
+                        "{}: environment '{}' not found",
+                        "Warning".yellow().bold(),
+                        env_key,
+                    );
+                }
+            }
+        }
+    }
+
+    let client = match HttpClient::new() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{}: {e}", "Error".red().bold());
+            return 1;
+        }
+    };
+
+    println!(
+        "{} {} ({} steps)",
+        "Running chain".cyan().bold(),
+        request.name,
+        request.chain.len()
+    );
+    println!();
+
+    let result = chain::execute_chain(&request.chain, wire_path, &scope, &client).await;
+
+    // Print step results
+    for step in &result.steps {
+        let icon = if step.passed {
+            "✓".green().bold()
+        } else {
+            "✗".red().bold()
+        };
+
+        let status_colored = if step.status == 0 {
+            "---".dimmed()
+        } else if step.status < 300 {
+            format!("{}", step.status).green()
+        } else {
+            format!("{}", step.status).red()
+        };
+
+        println!(
+            "  {} Step {} — {} [{}] {}ms",
+            icon,
+            step.step_index + 1,
+            step.request_name,
+            status_colored,
+            step.elapsed_ms,
+        );
+
+        if !step.extracted.is_empty() {
+            for (var, val) in &step.extracted {
+                let display_val = if val.len() > 60 {
+                    format!("{}...", &val[..57])
+                } else {
+                    val.clone()
+                };
+                println!(
+                    "      {} {} = {}",
+                    "↳".dimmed(),
+                    var.cyan(),
+                    display_val.dimmed()
+                );
+            }
+        }
+
+        if let Some(ref err) = step.error {
+            println!("      {} {}", "ERROR:".red().bold(), err);
+        }
+    }
+
+    println!();
+    if result.success {
+        println!(
+            "{} {} steps completed in {}ms",
+            "✓".green().bold(),
+            result.steps.len(),
+            result.total_elapsed_ms,
+        );
+        0
+    } else {
+        println!(
+            "{} {}",
+            "✗".red().bold(),
+            result.error.as_deref().unwrap_or("Chain failed"),
+        );
+        1
+    }
 }
 
 fn print_drift_report(report: &drift::DriftReport) {

@@ -268,3 +268,93 @@ fn generate_nonexistent_dir_fails() {
         .failure()
         .stderr(predicate::str::contains("Not a directory"));
 }
+
+// --- Chain tests ---
+
+fn create_chain_collection(dir: &std::path::Path) {
+    let wire_dir = dir.join(".wire");
+    fs::create_dir_all(wire_dir.join("requests")).unwrap();
+
+    fs::write(wire_dir.join("wire.yaml"), "name: Chain Test\nversion: 1\n").unwrap();
+
+    // A simple request that hits httpbin
+    fs::write(
+        wire_dir.join("requests/get-uuid.wire.yaml"),
+        "name: Get UUID\nmethod: GET\nurl: https://httpbin.org/uuid\n",
+    )
+    .unwrap();
+
+    // A chain request that runs two steps
+    fs::write(
+        wire_dir.join("requests/my-chain.wire.yaml"),
+        r#"name: My Chain
+method: GET
+url: https://httpbin.org/get
+chain:
+  - run: get-uuid
+    extract:
+      uuid: body.uuid
+  - run: get-uuid
+"#,
+    )
+    .unwrap();
+}
+
+#[test]
+fn chain_run_executes_steps() {
+    let dir = TempDir::new().unwrap();
+    create_chain_collection(dir.path());
+
+    wire_cmd()
+        .arg("chain")
+        .arg("run")
+        .arg(
+            dir.path()
+                .join(".wire/requests/my-chain.wire.yaml")
+                .to_str()
+                .unwrap(),
+        )
+        .arg("-d")
+        .arg(dir.path().join(".wire").to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Running chain"))
+        .stdout(predicate::str::contains("2 steps"))
+        .stdout(predicate::str::contains("Step 1"))
+        .stdout(predicate::str::contains("Step 2"))
+        .stdout(predicate::str::contains("uuid"))
+        .stdout(predicate::str::contains("completed"));
+}
+
+#[test]
+fn chain_run_no_chain_section_fails() {
+    let dir = TempDir::new().unwrap();
+    create_chain_collection(dir.path());
+
+    // Run a request that has no chain section
+    wire_cmd()
+        .arg("chain")
+        .arg("run")
+        .arg(
+            dir.path()
+                .join(".wire/requests/get-uuid.wire.yaml")
+                .to_str()
+                .unwrap(),
+        )
+        .arg("-d")
+        .arg(dir.path().join(".wire").to_str().unwrap())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no chain section"));
+}
+
+#[test]
+fn chain_run_nonexistent_file_fails() {
+    wire_cmd()
+        .arg("chain")
+        .arg("run")
+        .arg("/nonexistent/chain.wire.yaml")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Error"));
+}
