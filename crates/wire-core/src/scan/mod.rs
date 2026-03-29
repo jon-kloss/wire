@@ -58,6 +58,7 @@ pub fn scan_and_create_collection(
         active_env: Some(active_env),
         default_template: None,
         default_templates: Vec::new(),
+        source_dir: Some(project_dir.to_string_lossy().to_string()),
     };
     let metadata_yaml = serde_yaml::to_string(&metadata)?;
     std::fs::write(wire_dir.join("wire.yaml"), metadata_yaml)?;

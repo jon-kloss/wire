@@ -28,6 +28,7 @@ fn build_collection_info(collection: &LoadedCollection, wire_dir: &Path) -> IpcC
             .collect(),
         environments: collection.environments.keys().cloned().collect(),
         templates: list_templates(wire_dir).unwrap_or_default(),
+        source_dir: collection.metadata.source_dir.clone(),
     }
 }
 
@@ -484,42 +485,51 @@ pub async fn toggle_default_template(
 
 #[tauri::command]
 pub async fn check_drift(
-    project_dir: String,
     state: State<'_, AppState>,
 ) -> Result<wire_core::drift::DriftReport, String> {
-    let scan_result =
-        wire_core::scan::scan_project(Path::new(&project_dir)).map_err(|e| e.to_string())?;
-
-    // Clone requests so we don't hold the lock during comparison
-    let requests = {
+    let (requests, source_dir) = {
         let col_guard = state.collection.lock().await;
         let collection = col_guard
             .as_ref()
             .ok_or_else(|| "No collection open".to_string())?;
-        collection.requests.clone()
+        let dir = collection.metadata.source_dir.clone().ok_or_else(|| {
+            "Collection has no source directory (not generated from codebase)".to_string()
+        })?;
+        (collection.requests.clone(), dir)
     };
+
+    let scan_result =
+        wire_core::scan::scan_project(Path::new(&source_dir)).map_err(|e| e.to_string())?;
 
     Ok(wire_core::drift::compare(&scan_result.endpoints, &requests))
 }
 
 #[tauri::command]
 pub async fn fix_drift(
-    project_dir: String,
     state: State<'_, AppState>,
 ) -> Result<wire_core::drift::DriftReport, String> {
-    let scan_result =
-        wire_core::scan::scan_project(Path::new(&project_dir)).map_err(|e| e.to_string())?;
-
-    let (requests, wire_dir) = {
+    let (requests, wire_dir, source_dir) = {
         let col_guard = state.collection.lock().await;
         let collection = col_guard
             .as_ref()
             .ok_or_else(|| "No collection open".to_string())?;
-        (collection.requests.clone(), {
-            let p = state.collection_path.lock().await;
-            p.clone().ok_or_else(|| "No collection path".to_string())?
-        })
+        let dir = collection
+            .metadata
+            .source_dir
+            .clone()
+            .ok_or_else(|| "Collection has no source directory".to_string())?;
+        (
+            collection.requests.clone(),
+            {
+                let p = state.collection_path.lock().await;
+                p.clone().ok_or_else(|| "No collection path".to_string())?
+            },
+            dir,
+        )
     };
+
+    let scan_result =
+        wire_core::scan::scan_project(Path::new(&source_dir)).map_err(|e| e.to_string())?;
 
     let report = wire_core::drift::compare(&scan_result.endpoints, &requests);
     let requests_dir = wire_dir.join("requests");

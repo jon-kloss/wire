@@ -45,6 +45,7 @@ pub struct IpcCollectionInfo {
     pub requests: Vec<IpcRequestEntry>,
     pub environments: Vec<String>,
     pub templates: Vec<String>,
+    pub source_dir: Option<String>,
 }
 
 /// Result of scanning a codebase for HTTP endpoints.

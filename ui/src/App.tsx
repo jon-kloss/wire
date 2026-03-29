@@ -1362,32 +1362,37 @@ function App() {
         {sidebarTab === "drift" && (
           <div className="sidebar-content drift-panel">
             <div className="drift-controls">
-              <input
-                className="drift-input"
-                type="text"
-                placeholder="Project source directory..."
+              <select
+                className="drift-collection-select"
                 value={driftProjectDir}
-                onChange={(e) => setDriftProjectDir(e.target.value)}
-              />
-              <button
-                className="drift-browse-btn"
-                onClick={async () => {
-                  const selected = await open({ directory: true });
-                  if (selected) setDriftProjectDir(selected as string);
+                onChange={(e) => {
+                  setDriftProjectDir(e.target.value);
+                  setDriftReport(null);
+                  // Switch to this collection
+                  const col = collections.find((c) => c.info.source_dir === e.target.value);
+                  if (col) {
+                    setActiveCollectionPath(col.path);
+                    invoke("open_collection", { wireDir: col.path }).catch(() => {});
+                  }
                 }}
               >
-                Browse
-              </button>
+                <option value="">Select collection...</option>
+                {collections
+                  .filter((c) => c.info.source_dir)
+                  .map((c) => (
+                    <option key={c.path} value={c.info.source_dir!}>
+                      {c.info.name}
+                    </option>
+                  ))}
+              </select>
               <button
                 className="drift-check-btn"
-                disabled={driftLoading || !driftProjectDir || !activeCollectionPath}
+                disabled={driftLoading || !driftProjectDir}
                 onClick={async () => {
-                  if (!driftProjectDir || !activeCollectionPath) return;
+                  if (!driftProjectDir) return;
                   setDriftLoading(true);
                   try {
-                    const report = await invoke<DriftReport>("check_drift", {
-                      projectDir: driftProjectDir,
-                    });
+                    const report = await invoke<DriftReport>("check_drift");
                     setDriftReport(report ?? { items: [], new_count: 0, stale_count: 0, changed_count: 0 });
                   } catch (err) {
                     setDriftReport(null);
@@ -1400,8 +1405,8 @@ function App() {
                 {driftLoading ? "Checking..." : "Check Drift"}
               </button>
             </div>
-            {!activeCollectionPath && (
-              <p className="placeholder">Open a collection first</p>
+            {collections.filter((c) => c.info.source_dir).length === 0 && (
+              <p className="placeholder">No collections from codebase scan</p>
             )}
             {driftReport && !driftReport.items.length && (
               <div className="drift-no-drift">No drift detected</div>
@@ -1424,9 +1429,7 @@ function App() {
                     onClick={async () => {
                       setDriftLoading(true);
                       try {
-                        const report = await invoke<DriftReport>("fix_drift", {
-                          projectDir: driftProjectDir,
-                        });
+                        const report = await invoke<DriftReport>("fix_drift");
                         setDriftReport(report);
                         // Refresh collection sidebar
                         if (activeCollectionPath) {

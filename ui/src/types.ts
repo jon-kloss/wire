@@ -107,4 +107,5 @@ export interface IpcCollectionInfo {
   requests: IpcRequestEntry[];
   environments: string[];
   templates: string[];
+  source_dir: string | null;
 }

@@ -1207,18 +1207,18 @@
   flex-wrap: wrap;
 }
 
-.drift-input {
+.drift-collection-select {
   flex: 1;
-  min-width: 120px;
+  min-width: 100px;
   background: #3c3c3c;
   color: #d4d4d4;
   border: 1px solid #555;
   border-radius: 3px;
   padding: 4px 8px;
   font-size: 12px;
+  cursor: pointer;
 }
 
-.drift-browse-btn,
 .drift-check-btn {
   background: #3c3c3c;
   color: #d4d4d4;
@@ -1238,10 +1238,6 @@
 .drift-check-btn:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.drift-browse-btn:hover {
-  background: #4c4c4c;
 }
 
 .drift-no-drift {

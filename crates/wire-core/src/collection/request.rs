@@ -52,6 +52,9 @@ pub struct WireCollection {
     pub default_template: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub default_templates: Vec<String>,
+    /// Source project directory (set by Generate from Codebase, used by drift detection)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_dir: Option<String>,
 }
 
 impl WireCollection {
