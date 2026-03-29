@@ -767,7 +767,7 @@
 
 .response-fields-dropdown {
   position: absolute;
-  bottom: calc(100% + 4px);
+  top: calc(100% + 4px);
   left: 0;
   background: #2d2d2d;
   border: 1px solid #555;
