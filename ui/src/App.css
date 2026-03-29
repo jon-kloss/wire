@@ -1539,3 +1539,163 @@
 .prompt-ok:hover {
   background: #1177bb;
 }
+
+/* Chain button */
+.chain-btn {
+  background: #68217a;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chain-btn:hover {
+  background: #7c3a8e;
+}
+
+.chain-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Chain results */
+.chain-results {
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+
+.chain-results-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #333;
+}
+
+.chain-status {
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.chain-success {
+  color: #4ec9b0;
+}
+
+.chain-failure {
+  color: #f44747;
+}
+
+.chain-summary {
+  color: #d4d4d4;
+  font-size: 13px;
+}
+
+.chain-step {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border-left: 3px solid #555;
+}
+
+.chain-step-pass {
+  border-left-color: #4ec9b0;
+  background: rgba(78, 201, 176, 0.05);
+}
+
+.chain-step-fail {
+  border-left-color: #f44747;
+  background: rgba(244, 71, 71, 0.05);
+}
+
+.chain-step-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chain-step-icon {
+  font-weight: bold;
+}
+
+.chain-step-icon.pass {
+  color: #4ec9b0;
+}
+
+.chain-step-icon.fail {
+  color: #f44747;
+}
+
+.chain-step-name {
+  color: #d4d4d4;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.chain-step-status {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.chain-step-status.status-ok {
+  color: #4ec9b0;
+  background: rgba(78, 201, 176, 0.15);
+}
+
+.chain-step-status.status-err {
+  color: #f44747;
+  background: rgba(244, 71, 71, 0.15);
+}
+
+.chain-step-time {
+  color: #808080;
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.chain-step-vars {
+  margin-top: 6px;
+  padding-left: 24px;
+}
+
+.chain-var {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.chain-var-name {
+  color: #9cdcfe;
+}
+
+.chain-var-eq {
+  color: #808080;
+}
+
+.chain-var-value {
+  color: #808080;
+  font-family: monospace;
+}
+
+.chain-step-error {
+  margin-top: 4px;
+  padding-left: 24px;
+  color: #f44747;
+  font-size: 12px;
+}
+
+.chain-error {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(244, 71, 71, 0.1);
+  border-radius: 4px;
+  color: #f44747;
+  font-size: 13px;
+}

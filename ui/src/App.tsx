@@ -12,6 +12,7 @@ import type {
   Assertion,
   TestResult,
   DriftReport,
+  ChainResult,
 } from "./types";
 import type { TreeNode } from "./utils";
 import {
@@ -198,6 +199,11 @@ function App() {
   const [driftReport, setDriftReport] = useState<DriftReport | null>(null);
   const [driftLoading, setDriftLoading] = useState(false);
   const [driftProjectDir, setDriftProjectDir] = useState("");
+
+  // Chain state
+  const [hasChain, setHasChain] = useState(false);
+  const [chainResult, setChainResult] = useState<ChainResult | null>(null);
+  const [chainLoading, setChainLoading] = useState(false);
 
   // History state
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -661,6 +667,8 @@ function App() {
         setTestResults([]);
         setCurrentAssertions(req.tests ?? []);
         setResponseSchema(req.response_schema ?? []);
+        setHasChain((req.chain ?? []).length > 0);
+        setChainResult(null);
       } catch (err) {
         setError(String(err));
       }
@@ -735,6 +743,26 @@ function App() {
       setError(String(err));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRunChain = async () => {
+    if (!selectedRequestPath || !hasChain) return;
+
+    setChainLoading(true);
+    setChainResult(null);
+    setError(null);
+
+    try {
+      const result = await invoke<ChainResult>("run_chain", {
+        file: selectedRequestPath,
+        env: activeSelectedEnv,
+      });
+      setChainResult(result);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setChainLoading(false);
     }
   };
 
@@ -1592,9 +1620,14 @@ function App() {
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
             />
           </div>
-          <button className="send-btn" onClick={handleSend} disabled={loading}>
+          <button className="send-btn" onClick={handleSend} disabled={loading || chainLoading}>
             {loading ? "Sending..." : "Send"}
           </button>
+          {hasChain && (
+            <button className="chain-btn" onClick={handleRunChain} disabled={loading || chainLoading}>
+              {chainLoading ? "Running..." : "Run Chain"}
+            </button>
+          )}
           <button className="save-btn" onClick={handleSaveRequest}>
             Save
           </button>
@@ -2107,9 +2140,58 @@ function App() {
           </>
         )}
 
-        {!response && !error && (
+        {!response && !error && !chainResult && (
           <div className="panel-body">
             <p className="placeholder">Send a request to see the response</p>
+          </div>
+        )}
+
+        {chainResult && (
+          <div className="chain-results">
+            <div className="chain-results-header">
+              <span className={`chain-status ${chainResult.success ? "chain-success" : "chain-failure"}`}>
+                {chainResult.success ? "\u2713" : "\u2717"}
+              </span>
+              <span className="chain-summary">
+                {chainResult.steps.length} step{chainResult.steps.length !== 1 ? "s" : ""}{" "}
+                — {chainResult.total_elapsed_ms}ms
+              </span>
+            </div>
+            {chainResult.steps.map((step) => (
+              <div key={step.step_index} className={`chain-step ${step.passed ? "chain-step-pass" : "chain-step-fail"}`}>
+                <div className="chain-step-header">
+                  <span className={`chain-step-icon ${step.passed ? "pass" : "fail"}`}>
+                    {step.passed ? "\u2713" : "\u2717"}
+                  </span>
+                  <span className="chain-step-name">
+                    Step {step.step_index + 1}: {step.request_name}
+                  </span>
+                  {step.status > 0 && (
+                    <span className={`chain-step-status ${step.status < 300 ? "status-ok" : "status-err"}`}>
+                      {step.status}
+                    </span>
+                  )}
+                  <span className="chain-step-time">{step.elapsed_ms}ms</span>
+                </div>
+                {Object.keys(step.extracted).length > 0 && (
+                  <div className="chain-step-vars">
+                    {Object.entries(step.extracted).map(([name, val]) => (
+                      <div key={name} className="chain-var">
+                        <span className="chain-var-name">{name}</span>
+                        <span className="chain-var-eq">=</span>
+                        <span className="chain-var-value">{val.length > 80 ? val.slice(0, 77) + "..." : val}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {step.error && (
+                  <div className="chain-step-error">{step.error}</div>
+                )}
+              </div>
+            ))}
+            {chainResult.error && !chainResult.success && (
+              <div className="chain-error">{chainResult.error}</div>
+            )}
           </div>
         )}
       </section>
