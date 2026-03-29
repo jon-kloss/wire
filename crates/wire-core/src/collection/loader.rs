@@ -33,6 +33,7 @@ pub fn create_collection(parent_dir: &Path, name: &str) -> Result<LoadedCollecti
         name: name.to_string(),
         version: 1,
         active_env: None,
+        default_template: None,
     };
     let metadata = serde_yaml::to_string(&metadata_obj)?;
     std::fs::write(wire_dir.join("wire.yaml"), metadata)?;
@@ -69,8 +70,17 @@ pub fn load_request(path: &Path) -> Result<WireRequest, WireError> {
 /// Load a single .wire.yaml request file and resolve any `extends` template.
 /// The `wire_dir` is the .wire/ collection root (used to find templates/).
 pub fn load_request_resolved(path: &Path, wire_dir: &Path) -> Result<WireRequest, WireError> {
+    load_request_resolved_with_default(path, wire_dir, None)
+}
+
+/// Load and resolve with a collection-level default template fallback.
+pub fn load_request_resolved_with_default(
+    path: &Path,
+    wire_dir: &Path,
+    default_template: Option<&str>,
+) -> Result<WireRequest, WireError> {
     let request = load_request(path)?;
-    crate::collection::template::resolve_template(request, wire_dir)
+    crate::collection::template::resolve_with_default(request, wire_dir, default_template)
 }
 
 /// Load a full .wire/ collection directory.
@@ -103,6 +113,7 @@ pub fn load_collection(wire_dir: &Path) -> Result<LoadedCollection, WireError> {
                 .unwrap_or_else(|| "Unnamed Collection".to_string()),
             version: 1,
             active_env: None,
+            default_template: None,
         }
     };
 

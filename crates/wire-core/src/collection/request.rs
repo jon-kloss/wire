@@ -47,6 +47,8 @@ pub struct WireCollection {
     pub version: u32,
     #[serde(default)]
     pub active_env: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_template: Option<String>,
 }
 
 fn default_version() -> u32 {

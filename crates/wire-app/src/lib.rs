@@ -26,6 +26,8 @@ pub fn run() {
             commands::evaluate_tests,
             commands::list_templates_cmd,
             commands::read_template,
+            commands::save_template,
+            commands::set_default_template,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Wire");

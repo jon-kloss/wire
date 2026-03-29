@@ -28,6 +28,22 @@ pub fn load_template(name: &str, wire_dir: &Path) -> Result<WireRequest, WireErr
 /// Resolve a request's template chain and return the fully merged request.
 /// If the request has no `extends`, returns it unchanged.
 pub fn resolve_template(request: WireRequest, wire_dir: &Path) -> Result<WireRequest, WireError> {
+    resolve_with_default(request, wire_dir, None)
+}
+
+/// Resolve a request's template chain with a collection-level default fallback.
+/// Priority: request.extends > default_template > nothing.
+pub fn resolve_with_default(
+    mut request: WireRequest,
+    wire_dir: &Path,
+    default_template: Option<&str>,
+) -> Result<WireRequest, WireError> {
+    // If request has no explicit extends, apply collection default
+    if request.extends.is_none() {
+        if let Some(default) = default_template {
+            request.extends = Some(default.to_string());
+        }
+    }
     resolve_template_inner(request, wire_dir, &mut Vec::new(), 0)
 }
 
@@ -892,5 +908,91 @@ mod tests {
         let result = resolve_template(request, &wire_dir);
         let err = result.unwrap_err().to_string();
         assert!(err.contains("a -> b -> a")); // chain included in error
+    }
+
+    // --- resolve_with_default ---
+
+    #[test]
+    fn resolve_with_default_uses_default_when_no_extends() {
+        let dir = TempDir::new().unwrap();
+        let wire_dir = setup_wire_dir(dir.path());
+
+        fs::write(
+            wire_dir.join("templates/base-api.wire.yaml"),
+            "name: Base API\nmethod: GET\nurl: \"{{baseUrl}}\"\nheaders:\n  Accept: application/json\n",
+        )
+        .unwrap();
+
+        let request = WireRequest {
+            name: "Get Users".into(),
+            method: "GET".into(),
+            url: "{{baseUrl}}/users".into(),
+            headers: HashMap::new(),
+            params: HashMap::new(),
+            body: None,
+            extends: None, // no explicit extends
+            tests: vec![],
+            response_schema: vec![],
+        };
+
+        let resolved = resolve_with_default(request, &wire_dir, Some("base-api")).unwrap();
+        assert_eq!(resolved.headers["Accept"], "application/json"); // inherited from default
+        assert_eq!(resolved.extends, Some("base-api".into())); // shows the default was applied
+    }
+
+    #[test]
+    fn resolve_with_default_explicit_extends_wins() {
+        let dir = TempDir::new().unwrap();
+        let wire_dir = setup_wire_dir(dir.path());
+
+        fs::write(
+            wire_dir.join("templates/base-api.wire.yaml"),
+            "name: Base\nmethod: GET\nurl: \"\"\nheaders:\n  X-Default: default\n",
+        )
+        .unwrap();
+        fs::write(
+            wire_dir.join("templates/admin-api.wire.yaml"),
+            "name: Admin\nmethod: GET\nurl: \"\"\nheaders:\n  X-Admin: admin\n",
+        )
+        .unwrap();
+
+        let request = WireRequest {
+            name: "Admin Endpoint".into(),
+            method: "GET".into(),
+            url: "{{baseUrl}}/admin".into(),
+            headers: HashMap::new(),
+            params: HashMap::new(),
+            body: None,
+            extends: Some("admin-api".into()), // explicit extends
+            tests: vec![],
+            response_schema: vec![],
+        };
+
+        // default is base-api, but request explicitly extends admin-api
+        let resolved = resolve_with_default(request, &wire_dir, Some("base-api")).unwrap();
+        assert_eq!(resolved.headers["X-Admin"], "admin"); // from explicit extends
+        assert!(!resolved.headers.contains_key("X-Default")); // NOT from default
+        assert_eq!(resolved.extends, Some("admin-api".into()));
+    }
+
+    #[test]
+    fn resolve_with_default_no_default_no_extends() {
+        let dir = TempDir::new().unwrap();
+        let wire_dir = setup_wire_dir(dir.path());
+
+        let request = WireRequest {
+            name: "Simple".into(),
+            method: "GET".into(),
+            url: "https://example.com".into(),
+            headers: HashMap::new(),
+            params: HashMap::new(),
+            body: None,
+            extends: None,
+            tests: vec![],
+            response_schema: vec![],
+        };
+
+        let resolved = resolve_with_default(request.clone(), &wire_dir, None).unwrap();
+        assert_eq!(resolved, request); // unchanged
     }
 }

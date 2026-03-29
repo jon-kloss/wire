@@ -4,12 +4,32 @@ use std::path::Path;
 use tauri::State;
 use wire_core::collection::{
     create_collection, list_templates, load_collection, load_request, load_request_resolved,
-    rename_collection, Assertion, Environment, WireRequest,
+    rename_collection, Assertion, Environment, LoadedCollection, WireRequest,
 };
 use wire_core::history::{self, HistoryEntry};
 use wire_core::http::execute;
 use wire_core::scan;
 use wire_core::variables::VariableScope;
+
+fn build_collection_info(collection: &LoadedCollection, wire_dir: &Path) -> IpcCollectionInfo {
+    IpcCollectionInfo {
+        name: collection.metadata.name.clone(),
+        version: collection.metadata.version,
+        active_env: collection.metadata.active_env.clone(),
+        default_template: collection.metadata.default_template.clone(),
+        requests: collection
+            .requests
+            .iter()
+            .map(|(p, r)| IpcRequestEntry {
+                path: p.to_string_lossy().to_string(),
+                name: r.name.clone(),
+                method: r.method.clone(),
+            })
+            .collect(),
+        environments: collection.environments.keys().cloned().collect(),
+        templates: list_templates(wire_dir).unwrap_or_default(),
+    }
+}
 
 #[tauri::command]
 pub async fn open_collection(
@@ -22,22 +42,7 @@ pub async fn open_collection(
     }
 
     let collection = load_collection(path).map_err(|e| e.to_string())?;
-
-    let info = IpcCollectionInfo {
-        name: collection.metadata.name.clone(),
-        version: collection.metadata.version,
-        active_env: collection.metadata.active_env.clone(),
-        requests: collection
-            .requests
-            .iter()
-            .map(|(p, r)| IpcRequestEntry {
-                path: p.to_string_lossy().to_string(),
-                name: r.name.clone(),
-                method: r.method.clone(),
-            })
-            .collect(),
-        environments: collection.environments.keys().cloned().collect(),
-    };
+    let info = build_collection_info(&collection, path);
 
     *state.collection_path.lock().await = Some(path.to_path_buf());
     *state.collection.lock().await = Some(collection);
@@ -114,16 +119,21 @@ pub async fn send_raw_request(
     env: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<IpcResponse, String> {
-    // Resolve template if extends is set
-    let request = if request.extends.is_some() {
-        let col_path = state.collection_path.lock().await;
-        if let Some(ref wire_dir) = *col_path {
-            wire_core::collection::resolve_template(request, wire_dir).map_err(|e| e.to_string())?
+    // Resolve template (explicit extends or collection default_template)
+    let request = {
+        let wire_dir_opt = state.collection_path.lock().await.clone();
+        if let Some(ref wire_dir) = wire_dir_opt {
+            let default_tmpl = state
+                .collection
+                .lock()
+                .await
+                .as_ref()
+                .and_then(|c| c.metadata.default_template.clone());
+            wire_core::collection::resolve_with_default(request, wire_dir, default_tmpl.as_deref())
+                .map_err(|e| e.to_string())?
         } else {
             request
         }
-    } else {
-        request
     };
 
     let mut scope = VariableScope::new();
@@ -193,22 +203,7 @@ pub async fn create_collection_cmd(
     let parent = Path::new(&parent_dir);
     let collection = create_collection(parent, &name).map_err(|e| e.to_string())?;
     let wire_dir = parent.join(".wire");
-
-    let info = IpcCollectionInfo {
-        name: collection.metadata.name.clone(),
-        version: collection.metadata.version,
-        active_env: collection.metadata.active_env.clone(),
-        requests: collection
-            .requests
-            .iter()
-            .map(|(p, r)| IpcRequestEntry {
-                path: p.to_string_lossy().to_string(),
-                name: r.name.clone(),
-                method: r.method.clone(),
-            })
-            .collect(),
-        environments: collection.environments.keys().cloned().collect(),
-    };
+    let info = build_collection_info(&collection, &wire_dir);
 
     *state.collection_path.lock().await = Some(wire_dir.clone());
     *state.collection.lock().await = Some(collection);
@@ -224,22 +219,7 @@ pub async fn rename_collection_cmd(
 ) -> Result<IpcCollectionInfo, String> {
     let path = Path::new(&wire_dir);
     let collection = rename_collection(path, &new_name).map_err(|e| e.to_string())?;
-
-    let info = IpcCollectionInfo {
-        name: collection.metadata.name.clone(),
-        version: collection.metadata.version,
-        active_env: collection.metadata.active_env.clone(),
-        requests: collection
-            .requests
-            .iter()
-            .map(|(p, r)| IpcRequestEntry {
-                path: p.to_string_lossy().to_string(),
-                name: r.name.clone(),
-                method: r.method.clone(),
-            })
-            .collect(),
-        environments: collection.environments.keys().cloned().collect(),
-    };
+    let info = build_collection_info(&collection, path);
 
     *state.collection_path.lock().await = Some(path.to_path_buf());
     *state.collection.lock().await = Some(collection);
@@ -263,21 +243,7 @@ pub async fn scan_codebase(
     let (collection_info, wire_dir) = match collection {
         Some(col) => {
             let wire_dir = output_path.join(".wire");
-            let info = IpcCollectionInfo {
-                name: col.metadata.name.clone(),
-                version: col.metadata.version,
-                active_env: col.metadata.active_env.clone(),
-                requests: col
-                    .requests
-                    .iter()
-                    .map(|(p, r)| IpcRequestEntry {
-                        path: p.to_string_lossy().to_string(),
-                        name: r.name.clone(),
-                        method: r.method.clone(),
-                    })
-                    .collect(),
-                environments: col.environments.keys().cloned().collect(),
-            };
+            let info = build_collection_info(&col, &wire_dir);
             (Some(info), Some(wire_dir.to_string_lossy().to_string()))
         }
         None => (None, None),
@@ -342,9 +308,20 @@ pub async fn save_environment(
 
 #[tauri::command]
 pub async fn read_request(file: String, state: State<'_, AppState>) -> Result<WireRequest, String> {
-    let col_path = state.collection_path.lock().await;
-    if let Some(ref wire_dir) = *col_path {
-        load_request_resolved(Path::new(&file), wire_dir).map_err(|e| e.to_string())
+    let wire_dir_opt = state.collection_path.lock().await.clone();
+    if let Some(ref wire_dir) = wire_dir_opt {
+        let default_tmpl = state
+            .collection
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|c| c.metadata.default_template.clone());
+        wire_core::collection::load_request_resolved_with_default(
+            Path::new(&file),
+            wire_dir,
+            default_tmpl.as_deref(),
+        )
+        .map_err(|e| e.to_string())
     } else {
         load_request(Path::new(&file)).map_err(|e| e.to_string())
     }
@@ -380,6 +357,60 @@ pub async fn save_request(path: String, request: WireRequest) -> Result<(), Stri
     let yaml = serde_yaml::to_string(&request).map_err(|e| e.to_string())?;
     std::fs::write(file_path, yaml).map_err(|e| format!("Failed to write file: {e}"))?;
 
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn save_template(
+    name: String,
+    request: WireRequest,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // Validate template name (same guard as load_template)
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err(format!(
+            "Invalid template name: {name} (must not contain path separators or '..')"
+        ));
+    }
+
+    let col_path = state.collection_path.lock().await;
+    let wire_dir = col_path
+        .as_ref()
+        .ok_or_else(|| "No collection open".to_string())?;
+
+    let templates_dir = wire_dir.join("templates");
+    std::fs::create_dir_all(&templates_dir)
+        .map_err(|e| format!("Failed to create templates directory: {e}"))?;
+
+    let file_path = templates_dir.join(format!("{name}.wire.yaml"));
+    let yaml = serde_yaml::to_string(&request).map_err(|e| e.to_string())?;
+    std::fs::write(&file_path, yaml).map_err(|e| format!("Failed to write template: {e}"))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_default_template(
+    wire_dir: String,
+    template: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let metadata_path = Path::new(&wire_dir).join("wire.yaml");
+    if !metadata_path.exists() {
+        return Err("No wire.yaml found".to_string());
+    }
+    let content = std::fs::read_to_string(&metadata_path).map_err(|e| e.to_string())?;
+    let mut metadata: wire_core::collection::WireCollection =
+        serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+    metadata.default_template = template.clone();
+    let yaml = serde_yaml::to_string(&metadata).map_err(|e| e.to_string())?;
+    std::fs::write(&metadata_path, yaml).map_err(|e| e.to_string())?;
+
+    // Update in-memory state to avoid stale reads
+    let mut col_guard = state.collection.lock().await;
+    if let Some(ref mut col) = *col_guard {
+        col.metadata.default_template = template;
+    }
     Ok(())
 }
 

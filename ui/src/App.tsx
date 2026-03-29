@@ -162,6 +162,7 @@ function App() {
   const [envSelectedMap, setEnvSelectedMap] = useState<Record<string, string | null>>({});
   const [envVarsMap, setEnvVarsMap] = useState<Record<string, Record<string, string>>>({});
   const [expandedEnvSections, setExpandedEnvSections] = useState<Set<string>>(new Set());
+  const [expandedTemplateSections, setExpandedTemplateSections] = useState<Set<string>>(new Set());
   const [selectedRequestPath, setSelectedRequestPath] = useState<string | null>(
     null
   );
@@ -181,6 +182,10 @@ function App() {
   // Derived env state for the active collection
   const activeSelectedEnv = activeCollectionPath ? envSelectedMap[activeCollectionPath] ?? null : null;
   const activeEnvVars = activeCollectionPath ? envVarsMap[activeCollectionPath] ?? {} : {};
+
+  // Derived template state for active collection
+  const activeCollection = collections.find((c) => c.path === activeCollectionPath);
+  const activeTemplates = activeCollection?.info.templates ?? [];
 
   // History state
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -1046,6 +1051,136 @@ function App() {
                                       ))}
                                     </div>
                                   )}
+                                {info.templates.length > 0 && (
+                                  <div className="default-template-section">
+                                    <label className="default-template-label">Default Template</label>
+                                    <select
+                                      className="env-select"
+                                      value={info.default_template ?? ""}
+                                      onChange={async (e) => {
+                                        const val = e.target.value === "" ? null : e.target.value;
+                                        try {
+                                          await invoke("set_default_template", {
+                                            wireDir: path,
+                                            template: val,
+                                          });
+                                          // Refresh collection
+                                          const updated = await invoke<IpcCollectionInfo>(
+                                            "open_collection",
+                                            { wireDir: path }
+                                          );
+                                          setCollections((prev) =>
+                                            prev.map((c) =>
+                                              c.path === path ? { info: updated, path: c.path } : c
+                                            )
+                                          );
+                                        } catch (err) {
+                                          setError(String(err));
+                                        }
+                                      }}
+                                    >
+                                      <option value="">(none)</option>
+                                      {info.templates.map((t) => (
+                                        <option key={t} value={t}>{t}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {info.templates.length > 0 && (
+                          <div className="collection-env-accordion">
+                            <div
+                              className="collection-env-toggle"
+                              onClick={() =>
+                                setExpandedTemplateSections((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(path)) {
+                                    next.delete(path);
+                                  } else {
+                                    next.add(path);
+                                  }
+                                  return next;
+                                })
+                              }
+                            >
+                              <span className="folder-icon">
+                                {expandedTemplateSections.has(path) ? "\u25BE" : "\u25B8"}
+                              </span>
+                              <span className="collection-env-label">Templates</span>
+                              <span className="collection-count">
+                                {info.templates.length}
+                              </span>
+                            </div>
+                            {expandedTemplateSections.has(path) && (
+                              <div className="collection-env-section">
+                                {info.templates.map((tmpl) => (
+                                  <div
+                                    key={tmpl}
+                                    className={`template-sidebar-item ${
+                                      selectedRequestPath === `${path}/templates/${tmpl}.wire.yaml`
+                                        ? "active"
+                                        : ""
+                                    }`}
+                                    onClick={async () => {
+                                      if (path !== activeCollectionPath) {
+                                        try {
+                                          await invoke("open_collection", { wireDir: path });
+                                        } catch { /* ignore */ }
+                                      }
+                                      setActiveCollectionPath(path);
+                                      const tmplPath = `${path}/templates/${tmpl}.wire.yaml`;
+                                      try {
+                                        const req = await invoke<WireRequest>("read_template", { name: tmpl });
+                                        setMethod(req.method || "GET");
+                                        setUrl(req.url || "");
+                                        const headerLines = Object.entries(req.headers)
+                                          .map(([k, v]) => `${k}: ${v}`)
+                                          .join("\n");
+                                        setHeadersText(headerLines);
+                                        if (req.body) {
+                                          setBodyText(
+                                            req.body.type === "json"
+                                              ? JSON.stringify(req.body.content, null, 2)
+                                              : String(req.body.content)
+                                          );
+                                        } else {
+                                          setBodyText("");
+                                        }
+                                        setQueryParams(
+                                          req.params && Object.keys(req.params).length > 0
+                                            ? Object.entries(req.params).map(([key, value]) => ({
+                                                key,
+                                                value,
+                                                enabled: true,
+                                              }))
+                                            : []
+                                        );
+                                        setSelectedRequestPath(tmplPath);
+                                        setSelectedRequestName(tmpl);
+                                        setExtendsTemplate(null);
+                                        setExtendsTooltip("");
+                                        setResponse(null);
+                                        setError(null);
+                                        setTestResults([]);
+                                        setCurrentAssertions(req.tests ?? []);
+                                        setResponseSchema(req.response_schema ?? []);
+                                      } catch (err) {
+                                        setError(String(err));
+                                      }
+                                    }}
+                                  >
+                                    <span className="template-sidebar-icon">T</span>
+                                    <span className="template-sidebar-name">{tmpl}</span>
+                                  </div>
+                                ))}
+                                {info.default_template && (
+                                  <div className="template-default-indicator">
+                                    Default: <strong>{info.default_template}</strong>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1193,14 +1328,98 @@ function App() {
           <button className="save-btn" onClick={handleSaveRequest}>
             Save
           </button>
+          {activeCollectionPath && (
+            <button
+              className="save-template-btn"
+              onClick={async () => {
+                const name = await showPrompt("Template name:", "");
+                if (!name?.trim()) return;
+                const tmplName = name.trim().replace(/\s+/g, "-").toLowerCase();
+                try {
+                  const headers: Record<string, string> = {};
+                  if (headersText.trim()) {
+                    for (const line of headersText.split("\n")) {
+                      const idx = line.indexOf(":");
+                      if (idx > 0) {
+                        headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+                      }
+                    }
+                  }
+                  let body: WireBody | null = null;
+                  if (bodyText.trim() && ["POST", "PUT", "PATCH"].includes(method)) {
+                    try {
+                      body = { type: "json", content: JSON.parse(bodyText) };
+                    } catch {
+                      body = { type: "text", content: bodyText };
+                    }
+                  }
+                  const params: Record<string, string> = {};
+                  for (const p of queryParams) {
+                    if (p.key.trim() && p.enabled !== false) {
+                      params[p.key.trim()] = p.value;
+                    }
+                  }
+                  const tmpl: WireRequest = {
+                    name: tmplName,
+                    method: method || "GET",
+                    url: "",
+                    headers,
+                    params,
+                    body,
+                  };
+                  await invoke("save_template", { name: tmplName, request: tmpl });
+                  // Refresh collection to pick up new template
+                  const info = await invoke<IpcCollectionInfo>("open_collection", {
+                    wireDir: activeCollectionPath,
+                  });
+                  setCollections((prev) =>
+                    prev.map((c) =>
+                      c.path === activeCollectionPath ? { info, path: c.path } : c
+                    )
+                  );
+                } catch (err) {
+                  setError(String(err));
+                }
+              }}
+            >
+              Save as Template
+            </button>
+          )}
         </div>
-        {extendsTemplate && (
-          <div
-            className="template-badge"
-            data-tooltip={extendsTooltip || undefined}
-          >
-            <span className="template-badge-label">extends</span>
-            <span className="template-badge-name">{extendsTemplate}</span>
+        {activeTemplates.length > 0 && (
+          <div className="template-picker">
+            <span className="template-picker-label">Template:</span>
+            <select
+              className="template-select"
+              value={extendsTemplate ?? ""}
+              onChange={(e) => {
+                const val = e.target.value === "" ? null : e.target.value;
+                setExtendsTemplate(val);
+                if (val) {
+                  invoke<WireRequest>("read_template", { name: val })
+                    .then((tmpl) => {
+                      const parts: string[] = [];
+                      const headerNames = Object.keys(tmpl.headers);
+                      if (headerNames.length > 0) parts.push(...headerNames);
+                      const paramNames = Object.keys(tmpl.params);
+                      if (paramNames.length > 0) parts.push(...paramNames.map((p) => `${p} param`));
+                      if (tmpl.body) parts.push("body");
+                      setExtendsTooltip(parts.length > 0 ? `Inheriting ${parts.join(", ")}` : "");
+                    })
+                    .catch(() => setExtendsTooltip(""));
+                } else {
+                  setExtendsTooltip("");
+                }
+              }}
+            >
+              <option value="">(none)</option>
+              {activeTemplates.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+            {extendsTooltip && (
+              <span className="template-picker-hint">{extendsTooltip}</span>
+            )}
           </div>
         )}
         <div className="request-tabs">
