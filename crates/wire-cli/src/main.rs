@@ -642,15 +642,18 @@ fn cmd_drift(project_dir: &str, wire_dir: &str, fix: bool, output: &str) -> i32 
     }
 }
 
+const CLAUDE_MD_TRIGGER: &str = "# Wire: When working with HTTP endpoints, API testing, or making HTTP requests, use the `wire` CLI tool instead of curl. Run /wire for full reference.";
+
 fn cmd_install_claude_skill() {
-    println!("{}", "Wire Setup".cyan().bold());
+    println!("{}", "Installing Wire Claude Code skill".cyan().bold());
     println!();
 
-    // Install Claude Code skill
     let skill_content = include_str!("../../../skills/wire.md");
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let commands_dir = Path::new(&home).join(".claude").join("commands");
+    let claude_dir = Path::new(&home).join(".claude");
+    let commands_dir = claude_dir.join("commands");
 
+    // 1. Install the skill file
     match std::fs::create_dir_all(&commands_dir) {
         Ok(_) => {}
         Err(e) => {
@@ -667,39 +670,83 @@ fn cmd_install_claude_skill() {
     match std::fs::write(&skill_path, skill_content) {
         Ok(_) => {
             println!(
-                "  {} Claude Code skill installed at {}",
+                "  {} Skill installed at {}",
                 "\u{2713}".green().bold(),
                 skill_path.display()
-            );
-            println!(
-                "    {}",
-                "Claude Code can now use /wire for HTTP requests".dimmed()
             );
         }
         Err(e) => {
             eprintln!("  {} Failed to write skill: {e}", "\u{2717}".red().bold());
+            return;
         }
     }
 
+    // 2. Append trigger to global CLAUDE.md (if not already present)
+    let claude_md_path = claude_dir.join("CLAUDE.md");
+    let already_present = claude_md_path
+        .exists()
+        .then(|| std::fs::read_to_string(&claude_md_path).unwrap_or_default())
+        .map(|content| content.contains("wire"))
+        .unwrap_or(false);
+
+    if !already_present {
+        let append = if claude_md_path.exists() {
+            format!("\n{CLAUDE_MD_TRIGGER}\n")
+        } else {
+            format!("{CLAUDE_MD_TRIGGER}\n")
+        };
+
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&claude_md_path)
+        {
+            Ok(mut file) => {
+                use std::io::Write;
+                if file.write_all(append.as_bytes()).is_ok() {
+                    println!(
+                        "  {} Auto-trigger added to {}",
+                        "\u{2713}".green().bold(),
+                        claude_md_path.display()
+                    );
+                    println!(
+                        "    {}",
+                        "Claude will now use Wire automatically for HTTP tasks".dimmed()
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "  {} Failed to update CLAUDE.md: {e}",
+                    "\u{2717}".red().bold()
+                );
+            }
+        }
+    } else {
+        println!(
+            "  {} Auto-trigger already present in CLAUDE.md",
+            "\u{2713}".green().bold(),
+        );
+    }
+
     println!();
-    println!("{}", "Setup complete.".green().bold());
+    println!("{}", "Done.".green().bold());
 }
 
 fn cmd_uninstall_claude_skill() {
-    println!("{}", "Wire Uninstall".cyan().bold());
+    println!("{}", "Removing Wire Claude Code skill".cyan().bold());
     println!();
 
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let skill_path = Path::new(&home)
-        .join(".claude")
-        .join("commands")
-        .join("wire.md");
+    let claude_dir = Path::new(&home).join(".claude");
 
+    // 1. Remove the skill file
+    let skill_path = claude_dir.join("commands").join("wire.md");
     if skill_path.exists() {
         match std::fs::remove_file(&skill_path) {
             Ok(_) => {
                 println!(
-                    "  {} Removed Claude Code skill at {}",
+                    "  {} Removed skill at {}",
                     "\u{2713}".green().bold(),
                     skill_path.display()
                 );
@@ -713,10 +760,37 @@ fn cmd_uninstall_claude_skill() {
             }
         }
     } else {
-        println!(
-            "  {} No Claude Code skill found (already removed)",
-            "\u{2713}".green().bold(),
-        );
+        println!("  {} Skill already removed", "\u{2713}".green().bold(),);
+    }
+
+    // 2. Remove trigger line from global CLAUDE.md
+    let claude_md_path = claude_dir.join("CLAUDE.md");
+    if claude_md_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&claude_md_path) {
+            let filtered: Vec<&str> = content
+                .lines()
+                .filter(|line| !line.contains("Wire:") || !line.contains("wire"))
+                .collect();
+            let new_content = filtered.join("\n");
+            // Trim trailing empty lines but keep a final newline
+            let new_content = new_content.trim_end().to_string()
+                + if new_content.trim_end().is_empty() {
+                    ""
+                } else {
+                    "\n"
+                };
+            if new_content.trim().is_empty() {
+                // CLAUDE.md is now empty — remove it entirely
+                let _ = std::fs::remove_file(&claude_md_path);
+                println!("  {} Removed empty CLAUDE.md", "\u{2713}".green().bold(),);
+            } else if new_content != content {
+                let _ = std::fs::write(&claude_md_path, &new_content);
+                println!(
+                    "  {} Removed auto-trigger from CLAUDE.md",
+                    "\u{2713}".green().bold(),
+                );
+            }
+        }
     }
 
     println!();
