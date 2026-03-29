@@ -156,6 +156,7 @@ fn endpoint_to_request(endpoint: &DiscoveredEndpoint) -> WireRequest {
         params,
         body,
         tests: Vec::new(),
+        response_schema: endpoint.response_fields.clone(),
     }
 }
 
@@ -589,6 +590,8 @@ public class UsersController : ControllerBase
                 ("Name".to_string(), "string".to_string()),
                 ("Age".to_string(), "int".to_string()),
             ],
+            response_type: None,
+            response_fields: Vec::new(),
         };
         let req = endpoint_to_request(&ep);
         assert_eq!(req.method, "POST");

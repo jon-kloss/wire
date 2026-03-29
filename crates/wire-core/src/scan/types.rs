@@ -15,6 +15,10 @@ pub struct DiscoveredEndpoint {
     pub body_type: Option<String>,
     /// Discovered body field names and their type hints (e.g., [("name", "string"), ("age", "int")])
     pub body_fields: Vec<(String, String)>,
+    /// Response type name if detected (e.g., "TourDto", "List<TourDto>")
+    pub response_type: Option<String>,
+    /// Discovered response field names and their type hints
+    pub response_fields: Vec<(String, String)>,
 }
 
 /// Detected project framework.

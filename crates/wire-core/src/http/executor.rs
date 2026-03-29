@@ -117,6 +117,7 @@ mod tests {
             params: HashMap::new(),
             body: None,
             tests: Vec::new(),
+            response_schema: Vec::new(),
         }
     }
 
@@ -144,6 +145,7 @@ mod tests {
             params: HashMap::new(),
             body: None,
             tests: Vec::new(),
+            response_schema: Vec::new(),
         };
 
         let mut scope = VariableScope::new();
@@ -179,6 +181,7 @@ mod tests {
                 content: serde_json::json!({"name": "Wire", "version": "0.1"}),
             }),
             tests: Vec::new(),
+            response_schema: Vec::new(),
         };
         let scope = VariableScope::new();
 
@@ -202,6 +205,7 @@ mod tests {
             params,
             body: None,
             tests: Vec::new(),
+            response_schema: Vec::new(),
         };
 
         let mut scope = VariableScope::new();

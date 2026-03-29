@@ -51,6 +51,7 @@ export interface WireRequest {
   params: Record<string, string>;
   body: WireBody | null;
   tests?: Assertion[];
+  response_schema?: [string, string][];
 }
 
 /** A history entry from the Rust backend */

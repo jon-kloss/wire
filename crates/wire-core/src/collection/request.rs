@@ -17,6 +17,9 @@ pub struct WireRequest {
     pub body: Option<Body>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tests: Vec<Assertion>,
+    /// Expected response fields from codebase scan (field_name, type_hint)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub response_schema: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

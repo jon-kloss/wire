@@ -144,6 +144,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [testResults, setTestResults] = useState<TestResult[]>([]);
   const [currentAssertions, setCurrentAssertions] = useState<Assertion[]>([]);
+  const [responseSchema, setResponseSchema] = useState<[string, string][]>([]);
   const [error, setError] = useState<string | null>(null);
   const [responseTab, setResponseTab] = useState<"body" | "headers">("body");
 
@@ -253,6 +254,7 @@ function App() {
     setError(null);
     setTestResults([]);
     setCurrentAssertions([]);
+    setResponseSchema([]);
   }, []);
 
   const handleOpenCollection = useCallback(async () => {
@@ -611,6 +613,7 @@ function App() {
         setError(null);
         setTestResults([]);
         setCurrentAssertions(req.tests ?? []);
+        setResponseSchema(req.response_schema ?? []);
       } catch (err) {
         setError(String(err));
       }
@@ -1451,6 +1454,44 @@ function App() {
                             </div>
                           </>
                         )}
+                      </div>
+                    )}
+                    {responseSchema.length > 0 && (
+                      <div className="response-fields-picker">
+                        <button
+                          className="test-assertion-add test-assertion-from-schema"
+                          onClick={() => {
+                            // Add all schema fields as assertions at once
+                            const newAssertions = responseSchema.map(([name, typeHint]) => {
+                              const field = `body.${name.charAt(0).toLowerCase() + name.slice(1)}`;
+                              const boolTypes = ["is_array", "is_object", "is_string", "is_number"];
+                              const typeMap: Record<string, string> = {
+                                "string": "is_string",
+                                "string?": "is_string",
+                                "int": "is_number",
+                                "long": "is_number",
+                                "double": "is_number",
+                                "decimal": "is_number",
+                                "float": "is_number",
+                                "bool": "exists",
+                                "Guid": "is_string",
+                                "DateTime": "is_string",
+                                "DateTime?": "is_string",
+                              };
+                              const op = typeMap[typeHint] ?? (typeHint.startsWith("List<") ? "is_array" : "exists");
+                              const a: Assertion = { field };
+                              if (boolTypes.includes(op)) {
+                                (a as Record<string, unknown>)[op] = true;
+                              } else {
+                                a.exists = true;
+                              }
+                              return a;
+                            });
+                            setCurrentAssertions([...currentAssertions, ...newAssertions]);
+                          }}
+                        >
+                          + Add from Schema ({responseSchema.length} fields)
+                        </button>
                       </div>
                     )}
                   </div>

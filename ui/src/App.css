@@ -744,6 +744,18 @@
   border-color: #007acc;
 }
 
+.test-assertion-from-schema {
+  border-style: solid;
+  border-color: #c586c0;
+  color: #c586c0;
+}
+
+.test-assertion-from-schema:hover {
+  background: rgba(197, 134, 192, 0.1);
+  color: #c586c0;
+  border-color: #c586c0;
+}
+
 .response-fields-picker {
   position: relative;
 }

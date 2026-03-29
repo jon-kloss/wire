@@ -37,6 +37,11 @@ pub fn scan_aspnet(project_dir: &Path) -> (Vec<DiscoveredEndpoint>, usize) {
         if let Some(ref type_name) = endpoint.body_type {
             endpoint.body_fields = find_class_properties(&combined_source, type_name);
         }
+        if let Some(ref response_type) = endpoint.response_type {
+            // Strip List<> wrapper to get the inner DTO name
+            let dto_name = strip_collection_wrapper(response_type);
+            endpoint.response_fields = find_class_properties(&combined_source, &dto_name);
+        }
     }
 
     (endpoints, files_scanned)
@@ -260,6 +265,10 @@ fn parse_controllers(content: &str) -> Vec<DiscoveredEndpoint> {
             // Extract parameter metadata
             let (headers, query_params, body_type) = parse_params(&params_str);
 
+            // Extract response type from method signature
+            let sig_text = sig_cap.get(0).map(|m| m.as_str()).unwrap_or("");
+            let response_type = extract_response_type(sig_text);
+
             endpoints.push(DiscoveredEndpoint {
                 method: http_method,
                 route: wire_route,
@@ -268,6 +277,8 @@ fn parse_controllers(content: &str) -> Vec<DiscoveredEndpoint> {
                 query_params,
                 body_type,
                 body_fields: Vec::new(), // populated later via resolve_body_fields
+                response_type,
+                response_fields: Vec::new(), // populated later
             });
         }
     }
@@ -303,7 +314,9 @@ fn parse_minimal_apis(content: &str) -> Vec<DiscoveredEndpoint> {
             headers,
             query_params,
             body_type,
-            body_fields: Vec::new(), // populated later via resolve_body_fields
+            body_fields: Vec::new(),
+            response_type: None, // minimal APIs don't have typed return values in the regex
+            response_fields: Vec::new(),
         });
     }
 
@@ -402,6 +415,32 @@ fn parse_params(params_str: &str) -> ParamMeta {
 fn parse_minimal_api_params(params_str: &str) -> ParamMeta {
     // Minimal APIs use the same attributes as controllers
     parse_params(params_str)
+}
+
+/// Extract the response DTO type from a method signature.
+/// e.g. "public async Task<ActionResult<TourDto>> Create(" → Some("TourDto")
+/// e.g. "public async Task<ActionResult<List<TourDto>>> GetAll(" → Some("List<TourDto>")
+/// e.g. "public async Task<ActionResult> Delete(" → None
+fn extract_response_type(sig: &str) -> Option<String> {
+    // Match ActionResult<T> where T is the response type
+    let re = Regex::new(r"ActionResult<([^>]+(?:<[^>]+>)?)>").ok()?;
+    let cap = re.captures(sig)?;
+    let inner = cap[1].trim().to_string();
+    if inner.is_empty() {
+        None
+    } else {
+        Some(inner)
+    }
+}
+
+/// Strip List<>/IEnumerable<> wrapper to get the inner type name.
+/// e.g. "List<TourDto>" → "TourDto", "TourDto" → "TourDto"
+fn strip_collection_wrapper(type_name: &str) -> String {
+    let re = Regex::new(r"^(?:List|IEnumerable|IList|ICollection)<(.+)>$").unwrap();
+    match re.captures(type_name) {
+        Some(cap) => cap[1].trim().to_string(),
+        None => type_name.to_string(),
+    }
 }
 
 /// Derive a human-readable name from a route pattern.

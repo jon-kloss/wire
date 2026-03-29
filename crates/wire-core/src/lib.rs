@@ -51,6 +51,7 @@ params:
             params: request.params.clone(),
             body: Some(body.clone()),
             tests: Vec::new(),
+            response_schema: Vec::new(),
         })
         .unwrap();
         let reparsed: WireRequest = serde_yaml::from_str(&serialized).unwrap();
