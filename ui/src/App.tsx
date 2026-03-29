@@ -1055,41 +1055,6 @@ function App() {
                                       ))}
                                     </div>
                                   )}
-                                {info.templates.length > 0 && (
-                                  <div className="default-template-section">
-                                    <label className="default-template-label">Default Template</label>
-                                    <select
-                                      className="env-select"
-                                      value={info.default_template ?? ""}
-                                      onChange={async (e) => {
-                                        const val = e.target.value === "" ? null : e.target.value;
-                                        try {
-                                          await invoke("set_default_template", {
-                                            wireDir: path,
-                                            template: val,
-                                          });
-                                          // Refresh collection
-                                          const updated = await invoke<IpcCollectionInfo>(
-                                            "open_collection",
-                                            { wireDir: path }
-                                          );
-                                          setCollections((prev) =>
-                                            prev.map((c) =>
-                                              c.path === path ? { info: updated, path: c.path } : c
-                                            )
-                                          );
-                                        } catch (err) {
-                                          setError(String(err));
-                                        }
-                                      }}
-                                    >
-                                      <option value="">(none)</option>
-                                      {info.templates.map((t) => (
-                                        <option key={t} value={t}>{t}</option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                )}
                               </div>
                             )}
                           </div>
@@ -1223,13 +1188,32 @@ function App() {
                                   >
                                     <span className="template-sidebar-icon">T</span>
                                     <span className="template-sidebar-name">{tmpl}</span>
+                                    <button
+                                      className={`template-default-star ${info.default_templates.includes(tmpl) ? "active" : ""}`}
+                                      title={info.default_templates.includes(tmpl) ? "Remove from defaults" : "Set as default"}
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        try {
+                                          const updated = await invoke<string[]>("toggle_default_template", {
+                                            wireDir: path,
+                                            template: tmpl,
+                                          });
+                                          setCollections((prev) =>
+                                            prev.map((c) =>
+                                              c.path === path
+                                                ? { info: { ...c.info, default_templates: updated }, path: c.path }
+                                                : c
+                                            )
+                                          );
+                                        } catch (err) {
+                                          setError(String(err));
+                                        }
+                                      }}
+                                    >
+                                      {info.default_templates.includes(tmpl) ? "\u2605" : "\u2606"}
+                                    </button>
                                   </div>
                                 ))}
-                                {info.default_template && (
-                                  <div className="template-default-indicator">
-                                    Default: <strong>{info.default_template}</strong>
-                                  </div>
-                                )}
                               </div>
                             )}
                           </div>

@@ -41,7 +41,7 @@ pub struct IpcCollectionInfo {
     pub name: String,
     pub version: u32,
     pub active_env: Option<String>,
-    pub default_template: Option<String>,
+    pub default_templates: Vec<String>,
     pub requests: Vec<IpcRequestEntry>,
     pub environments: Vec<String>,
     pub templates: Vec<String>,

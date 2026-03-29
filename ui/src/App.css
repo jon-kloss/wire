@@ -1088,14 +1088,24 @@
   white-space: nowrap;
 }
 
-.template-default-indicator {
-  padding: 4px 12px;
-  font-size: 11px;
-  color: #888;
+/* Template default star toggle */
+.template-default-star {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
 }
 
-.template-default-indicator strong {
-  color: #007acc;
+.template-default-star:hover {
+  color: #e8a317;
+}
+
+.template-default-star.active {
+  color: #e8a317;
 }
 
 /* Template add button in sidebar */

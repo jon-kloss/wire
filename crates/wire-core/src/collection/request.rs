@@ -47,8 +47,25 @@ pub struct WireCollection {
     pub version: u32,
     #[serde(default)]
     pub active_env: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Legacy single default template (read for backward compat, not written)
+    #[serde(default, skip_serializing)]
     pub default_template: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub default_templates: Vec<String>,
+}
+
+impl WireCollection {
+    /// Get effective default templates, merging legacy single field into the vec.
+    pub fn effective_default_templates(&self) -> Vec<String> {
+        if !self.default_templates.is_empty() {
+            return self.default_templates.clone();
+        }
+        // Backward compat: old default_template field
+        match &self.default_template {
+            Some(t) => vec![t.clone()],
+            None => Vec::new(),
+        }
+    }
 }
 
 fn default_version() -> u32 {

@@ -34,6 +34,7 @@ pub fn create_collection(parent_dir: &Path, name: &str) -> Result<LoadedCollecti
         version: 1,
         active_env: None,
         default_template: None,
+        default_templates: Vec::new(),
     };
     let metadata = serde_yaml::to_string(&metadata_obj)?;
     std::fs::write(wire_dir.join("wire.yaml"), metadata)?;
@@ -114,6 +115,7 @@ pub fn load_collection(wire_dir: &Path) -> Result<LoadedCollection, WireError> {
             version: 1,
             active_env: None,
             default_template: None,
+            default_templates: Vec::new(),
         }
     };
 

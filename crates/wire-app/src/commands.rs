@@ -16,7 +16,7 @@ fn build_collection_info(collection: &LoadedCollection, wire_dir: &Path) -> IpcC
         name: collection.metadata.name.clone(),
         version: collection.metadata.version,
         active_env: collection.metadata.active_env.clone(),
-        default_template: collection.metadata.default_template.clone(),
+        default_templates: collection.metadata.effective_default_templates(),
         requests: collection
             .requests
             .iter()
@@ -119,17 +119,21 @@ pub async fn send_raw_request(
     env: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<IpcResponse, String> {
-    // Resolve template (explicit extends or collection default_template)
+    // Resolve template (explicit extends or collection defaults + global)
     let request = {
         let wire_dir_opt = state.collection_path.lock().await.clone();
         if let Some(ref wire_dir) = wire_dir_opt {
-            let default_tmpl = state
+            let defaults = state
                 .collection
                 .lock()
                 .await
                 .as_ref()
-                .and_then(|c| c.metadata.default_template.clone());
-            wire_core::collection::resolve_with_default(request, wire_dir, default_tmpl.as_deref())
+                .map(|c| c.metadata.effective_default_templates())
+                .unwrap_or_default();
+            let global_dirs: Vec<_> = wire_core::collection::global_templates_dir()
+                .into_iter()
+                .collect();
+            wire_core::collection::resolve_with_defaults(request, wire_dir, &defaults, &global_dirs)
                 .map_err(|e| e.to_string())?
         } else {
             request
@@ -310,18 +314,19 @@ pub async fn save_environment(
 pub async fn read_request(file: String, state: State<'_, AppState>) -> Result<WireRequest, String> {
     let wire_dir_opt = state.collection_path.lock().await.clone();
     if let Some(ref wire_dir) = wire_dir_opt {
-        let default_tmpl = state
+        let defaults = state
             .collection
             .lock()
             .await
             .as_ref()
-            .and_then(|c| c.metadata.default_template.clone());
-        wire_core::collection::load_request_resolved_with_default(
-            Path::new(&file),
-            wire_dir,
-            default_tmpl.as_deref(),
-        )
-        .map_err(|e| e.to_string())
+            .map(|c| c.metadata.effective_default_templates())
+            .unwrap_or_default();
+        let request = load_request(Path::new(&file)).map_err(|e| e.to_string())?;
+        let global_dirs: Vec<_> = wire_core::collection::global_templates_dir()
+            .into_iter()
+            .collect();
+        wire_core::collection::resolve_with_defaults(request, wire_dir, &defaults, &global_dirs)
+            .map_err(|e| e.to_string())
     } else {
         load_request(Path::new(&file)).map_err(|e| e.to_string())
     }
@@ -390,11 +395,11 @@ pub async fn save_template(
 }
 
 #[tauri::command]
-pub async fn set_default_template(
+pub async fn toggle_default_template(
     wire_dir: String,
-    template: Option<String>,
+    template: String,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     let metadata_path = Path::new(&wire_dir).join("wire.yaml");
     if !metadata_path.exists() {
         return Err("No wire.yaml found".to_string());
@@ -402,16 +407,31 @@ pub async fn set_default_template(
     let content = std::fs::read_to_string(&metadata_path).map_err(|e| e.to_string())?;
     let mut metadata: wire_core::collection::WireCollection =
         serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
-    metadata.default_template = template.clone();
+
+    // Toggle: add if not present, remove if present
+    if let Some(pos) = metadata
+        .default_templates
+        .iter()
+        .position(|t| t == &template)
+    {
+        metadata.default_templates.remove(pos);
+    } else {
+        metadata.default_templates.push(template);
+    }
+    // Clear legacy field
+    metadata.default_template = None;
+
+    let result = metadata.default_templates.clone();
     let yaml = serde_yaml::to_string(&metadata).map_err(|e| e.to_string())?;
     std::fs::write(&metadata_path, yaml).map_err(|e| e.to_string())?;
 
-    // Update in-memory state to avoid stale reads
+    // Update in-memory state
     let mut col_guard = state.collection.lock().await;
     if let Some(ref mut col) = *col_guard {
-        col.metadata.default_template = template;
+        col.metadata.default_templates = result.clone();
+        col.metadata.default_template = None;
     }
-    Ok(())
+    Ok(result)
 }
 
 #[tauri::command]

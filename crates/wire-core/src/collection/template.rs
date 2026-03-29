@@ -4,15 +4,18 @@ use std::path::Path;
 
 const MAX_TEMPLATE_DEPTH: usize = 3;
 
-/// Load a template by name from .wire/templates/<name>.wire.yaml
-pub fn load_template(name: &str, wire_dir: &Path) -> Result<WireRequest, WireError> {
-    // Guard against path traversal (e.g. "../../secrets")
+fn validate_template_name(name: &str) -> Result<(), WireError> {
     if name.contains('/') || name.contains('\\') || name.contains("..") {
         return Err(WireError::Other(format!(
             "Invalid template name: {name} (must not contain path separators or '..')"
         )));
     }
+    Ok(())
+}
 
+/// Load a template by name from .wire/templates/<name>.wire.yaml
+pub fn load_template(name: &str, wire_dir: &Path) -> Result<WireRequest, WireError> {
+    validate_template_name(name)?;
     let template_path = wire_dir.join("templates").join(format!("{name}.wire.yaml"));
     if !template_path.exists() {
         return Err(WireError::Other(format!(
@@ -25,31 +28,144 @@ pub fn load_template(name: &str, wire_dir: &Path) -> Result<WireRequest, WireErr
     Ok(template)
 }
 
+/// Load a template searching collection dir first, then global dirs.
+fn load_template_with_global(
+    name: &str,
+    wire_dir: &Path,
+    global_dirs: &[std::path::PathBuf],
+) -> Result<WireRequest, WireError> {
+    validate_template_name(name)?;
+
+    // Try collection templates first
+    let collection_path = wire_dir.join("templates").join(format!("{name}.wire.yaml"));
+    if collection_path.exists() {
+        let content = std::fs::read_to_string(&collection_path)?;
+        return Ok(serde_yaml::from_str(&content)?);
+    }
+
+    // Try global template directories
+    for dir in global_dirs {
+        let global_path = dir.join(format!("{name}.wire.yaml"));
+        if global_path.exists() {
+            let content = std::fs::read_to_string(&global_path)?;
+            return Ok(serde_yaml::from_str(&content)?);
+        }
+    }
+
+    Err(WireError::Other(format!(
+        "Template not found: {name} (searched collection and global template directories)"
+    )))
+}
+
+/// Return the global templates directory (~/.wire/templates/).
+pub fn global_templates_dir() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| h.join(".wire").join("templates"))
+}
+
+/// List templates from both collection and global directories.
+pub fn list_all_templates(
+    wire_dir: &Path,
+    global_dirs: &[std::path::PathBuf],
+) -> Result<Vec<(String, bool)>, WireError> {
+    // (name, is_global)
+    let mut result = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    // Collection templates first
+    for name in list_templates(wire_dir)? {
+        seen.insert(name.clone());
+        result.push((name, false));
+    }
+
+    // Global templates (skip duplicates)
+    for dir in global_dirs {
+        if dir.is_dir() {
+            for entry in std::fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if let Some(fname) = path.file_name().and_then(|n| n.to_str()) {
+                    if fname.ends_with(".wire.yaml") {
+                        let name = fname.trim_end_matches(".wire.yaml").to_string();
+                        if !seen.contains(&name) {
+                            seen.insert(name.clone());
+                            result.push((name, true));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    result.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(result)
+}
+
 /// Resolve a request's template chain and return the fully merged request.
 /// If the request has no `extends`, returns it unchanged.
 pub fn resolve_template(request: WireRequest, wire_dir: &Path) -> Result<WireRequest, WireError> {
-    resolve_with_default(request, wire_dir, None)
+    resolve_with_defaults(request, wire_dir, &[], &[])
 }
 
-/// Resolve a request's template chain with a collection-level default fallback.
-/// Priority: request.extends > default_template > nothing.
+/// Resolve with a single default (backward compat convenience).
 pub fn resolve_with_default(
-    mut request: WireRequest,
+    request: WireRequest,
     wire_dir: &Path,
     default_template: Option<&str>,
 ) -> Result<WireRequest, WireError> {
-    // If request has no explicit extends, apply collection default
-    if request.extends.is_none() {
-        if let Some(default) = default_template {
-            request.extends = Some(default.to_string());
-        }
+    let defaults: Vec<String> = default_template
+        .map(|s| vec![s.to_string()])
+        .unwrap_or_default();
+    resolve_with_defaults(request, wire_dir, &defaults, &[])
+}
+
+/// Resolve a request's template chain with multiple collection defaults and global template dirs.
+/// Priority: request.extends > collection defaults (merged additively) > nothing.
+/// `global_template_dirs` are additional directories to search for templates.
+pub fn resolve_with_defaults(
+    request: WireRequest,
+    wire_dir: &Path,
+    default_templates: &[String],
+    global_template_dirs: &[std::path::PathBuf],
+) -> Result<WireRequest, WireError> {
+    if request.extends.is_some() {
+        // Explicit extends takes full priority
+        return resolve_template_inner(request, wire_dir, global_template_dirs, &mut Vec::new(), 0);
     }
-    resolve_template_inner(request, wire_dir, &mut Vec::new(), 0)
+
+    if default_templates.is_empty() {
+        return Ok(request);
+    }
+
+    // Apply all default templates additively, then merge request on top
+    let mut base = WireRequest {
+        name: String::new(),
+        method: String::new(),
+        url: String::new(),
+        headers: std::collections::HashMap::new(),
+        params: std::collections::HashMap::new(),
+        body: None,
+        extends: None,
+        tests: Vec::new(),
+        response_schema: Vec::new(),
+    };
+
+    for tmpl_name in default_templates {
+        let template = load_template_with_global(tmpl_name, wire_dir, global_template_dirs)?;
+        let resolved =
+            resolve_template_inner(template, wire_dir, global_template_dirs, &mut Vec::new(), 0)?;
+        base = merge_requests(&base, &resolved);
+    }
+
+    let mut merged = merge_requests(&base, &request);
+    // Show which defaults were applied (join names for badge)
+    merged.extends = Some(default_templates.join(", "));
+    Ok(merged)
 }
 
 fn resolve_template_inner(
     request: WireRequest,
     wire_dir: &Path,
+    global_dirs: &[std::path::PathBuf],
     chain: &mut Vec<String>,
     depth: usize,
 ) -> Result<WireRequest, WireError> {
@@ -76,8 +192,9 @@ fn resolve_template_inner(
             chain.join(" -> ")
         )));
     }
-    let template = load_template(&template_name, wire_dir)?;
-    let resolved_template = resolve_template_inner(template, wire_dir, chain, depth + 1)?;
+    let template = load_template_with_global(&template_name, wire_dir, global_dirs)?;
+    let resolved_template =
+        resolve_template_inner(template, wire_dir, global_dirs, chain, depth + 1)?;
 
     let mut merged = merge_requests(&resolved_template, &request);
     // Preserve the original extends for informational purposes (GUI badge)

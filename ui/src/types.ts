@@ -86,7 +86,7 @@ export interface IpcCollectionInfo {
   name: string;
   version: number;
   active_env: string | null;
-  default_template: string | null;
+  default_templates: string[];
   requests: IpcRequestEntry[];
   environments: string[];
   templates: string[];
