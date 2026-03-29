@@ -504,6 +504,7 @@ function App() {
         headers,
         params,
         body,
+        tests: currentAssertions.length > 0 ? currentAssertions : undefined,
       };
 
       await invoke("save_request", { path: filePath, request });
@@ -524,7 +525,7 @@ function App() {
     } catch (err) {
       setError(String(err));
     }
-  }, [method, url, headersText, bodyText, queryParams, activeCollectionPath, selectedRequestPath, selectedRequestName, showPrompt]);
+  }, [method, url, headersText, bodyText, queryParams, currentAssertions, activeCollectionPath, selectedRequestPath, selectedRequestName, showPrompt]);
 
   const handleSelectRequest = useCallback(
     async (entry: IpcRequestEntry) => {
@@ -664,6 +665,52 @@ function App() {
       return next;
     });
   }, []);
+
+  // Helpers for assertion editor
+  const getAssertionOperator = (a: Assertion): string => {
+    if (a.equals !== undefined) return "equals";
+    if (a.not_equals !== undefined) return "not_equals";
+    if (a.contains !== undefined) return "contains";
+    if (a.starts_with !== undefined) return "starts_with";
+    if (a.ends_with !== undefined) return "ends_with";
+    if (a.less_than !== undefined) return "less_than";
+    if (a.greater_than !== undefined) return "greater_than";
+    if (a.is_array !== undefined) return "is_array";
+    if (a.is_object !== undefined) return "is_object";
+    if (a.is_string !== undefined) return "is_string";
+    if (a.is_number !== undefined) return "is_number";
+    if (a.exists !== undefined) return "exists";
+    if (a.body_contains !== undefined) return "body_contains";
+    if (a.body_matches !== undefined) return "body_matches";
+    return "equals";
+  };
+
+  const getAssertionValue = (a: Assertion): string => {
+    const v =
+      a.equals ?? a.not_equals ?? a.contains ?? a.starts_with ?? a.ends_with ??
+      a.less_than ?? a.greater_than ?? a.is_array ?? a.is_object ??
+      a.is_string ?? a.is_number ?? a.exists ?? a.body_contains ?? a.body_matches;
+    if (v === undefined || v === null) return "";
+    return String(v);
+  };
+
+  const buildAssertion = (field: string, operator: string, value: string): Assertion => {
+    const a: Assertion = { field };
+    const boolOps = ["is_array", "is_object", "is_string", "is_number", "exists"];
+    const numOps = ["less_than", "greater_than"];
+
+    if (boolOps.includes(operator)) {
+      (a as Record<string, unknown>)[operator] = value !== "false";
+    } else if (numOps.includes(operator)) {
+      (a as Record<string, unknown>)[operator] = parseFloat(value) || 0;
+    } else if (operator === "equals" || operator === "not_equals") {
+      const num = Number(value);
+      (a as Record<string, unknown>)[operator] = !isNaN(num) && value.trim() !== "" ? num : value;
+    } else {
+      (a as Record<string, unknown>)[operator] = value;
+    }
+    return a;
+  };
 
   return (
     <div className="app">
@@ -1203,53 +1250,116 @@ function App() {
             )}
             {activeTab === "tests" && (
               <div className="test-results-panel">
-                {currentAssertions.length === 0 && testResults.length === 0 && (
-                  <div className="tab-placeholder">
-                    <p className="placeholder">
-                      No tests defined. Add a tests: section to your .wire.yaml file.
-                    </p>
-                  </div>
-                )}
-                {currentAssertions.length > 0 && testResults.length === 0 && (
-                  <div className="tab-placeholder">
-                    <p className="placeholder">
-                      {currentAssertions.length} assertion{currentAssertions.length !== 1 ? "s" : ""} defined. Send the request to run tests.
-                    </p>
-                  </div>
-                )}
-                {testResults.length > 0 && (
-                  <div className="test-results-list">
-                    <h3 className="test-results-title">
-                      Test Results
-                      <span className="test-results-summary">
-                        <span className="test-pass-count">
-                          {testResults.filter((r) => r.passed).length} passed
-                        </span>
-                        {testResults.some((r) => !r.passed) && (
-                          <span className="test-fail-count">
-                            {testResults.filter((r) => !r.passed).length} failed
-                          </span>
-                        )}
-                      </span>
-                    </h3>
-                    {testResults.map((result, i) => (
+                <div className="test-editor">
+                  <h3 className="test-editor-title">Test Assertions</h3>
+                  {currentAssertions.map((assertion, i) => {
+                    const op = getAssertionOperator(assertion);
+                    const val = getAssertionValue(assertion);
+                    const result = testResults[i];
+                    return (
                       <div
                         key={i}
-                        className={`test-result-row ${result.passed ? "passed" : "failed"}`}
+                        className={`test-assertion-row ${result ? (result.passed ? "passed" : "failed") : ""}`}
                       >
-                        <span className="test-result-icon">
-                          {result.passed ? "\u2713" : "\u2717"}
-                        </span>
-                        <span className="test-result-field">{result.field}</span>
-                        <span className="test-result-operator">{result.operator}</span>
-                        <span className="test-result-expected">{result.expected}</span>
-                        {!result.passed && (
+                        {result && (
+                          <span className="test-result-icon">
+                            {result.passed ? "\u2713" : "\u2717"}
+                          </span>
+                        )}
+                        <input
+                          className="test-assertion-field"
+                          type="text"
+                          placeholder="field (e.g. status, body.name)"
+                          value={assertion.field}
+                          onChange={(e) => {
+                            const updated = [...currentAssertions];
+                            updated[i] = { ...updated[i], field: e.target.value };
+                            setCurrentAssertions(updated);
+                          }}
+                        />
+                        <select
+                          className="test-assertion-operator"
+                          value={op}
+                          onChange={(e) => {
+                            const updated = [...currentAssertions];
+                            updated[i] = buildAssertion(
+                              updated[i].field,
+                              e.target.value,
+                              val
+                            );
+                            setCurrentAssertions(updated);
+                          }}
+                        >
+                          <option value="equals">equals</option>
+                          <option value="not_equals">not_equals</option>
+                          <option value="contains">contains</option>
+                          <option value="starts_with">starts_with</option>
+                          <option value="ends_with">ends_with</option>
+                          <option value="less_than">less_than</option>
+                          <option value="greater_than">greater_than</option>
+                          <option value="is_array">is_array</option>
+                          <option value="is_object">is_object</option>
+                          <option value="is_string">is_string</option>
+                          <option value="is_number">is_number</option>
+                          <option value="exists">exists</option>
+                          <option value="body_contains">body_contains</option>
+                          <option value="body_matches">body_matches</option>
+                        </select>
+                        <input
+                          className="test-assertion-value"
+                          type="text"
+                          placeholder="expected value"
+                          value={val}
+                          onChange={(e) => {
+                            const updated = [...currentAssertions];
+                            updated[i] = buildAssertion(
+                              updated[i].field,
+                              op,
+                              e.target.value
+                            );
+                            setCurrentAssertions(updated);
+                          }}
+                        />
+                        <button
+                          className="test-assertion-remove"
+                          onClick={() =>
+                            setCurrentAssertions(
+                              currentAssertions.filter((_, j) => j !== i)
+                            )
+                          }
+                        >
+                          &#x2715;
+                        </button>
+                        {result && !result.passed && (
                           <span className="test-result-actual">
                             got {result.actual}
                           </span>
                         )}
                       </div>
-                    ))}
+                    );
+                  })}
+                  <button
+                    className="test-assertion-add"
+                    onClick={() =>
+                      setCurrentAssertions([
+                        ...currentAssertions,
+                        { field: "status", equals: 200 },
+                      ])
+                    }
+                  >
+                    + Add Assertion
+                  </button>
+                </div>
+                {testResults.length > 0 && (
+                  <div className="test-results-summary-bar">
+                    <span className="test-pass-count">
+                      {testResults.filter((r) => r.passed).length} passed
+                    </span>
+                    {testResults.some((r) => !r.passed) && (
+                      <span className="test-fail-count">
+                        {testResults.filter((r) => !r.passed).length} failed
+                      </span>
+                    )}
                   </div>
                 )}
               </div>

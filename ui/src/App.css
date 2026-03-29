@@ -604,6 +604,137 @@
   margin-left: auto;
 }
 
+/* Test assertion editor */
+.test-editor {
+  padding: 16px 20px;
+}
+
+.test-editor-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: #d4d4d4;
+  margin: 0 0 12px 0;
+  border-bottom: 1px solid #3c3c3c;
+  padding-bottom: 8px;
+}
+
+.test-assertion-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  flex-wrap: wrap;
+}
+
+.test-assertion-row.passed .test-result-icon {
+  color: #4ec9b0;
+}
+
+.test-assertion-row.failed .test-result-icon {
+  color: #f44747;
+}
+
+.test-assertion-row .test-result-icon {
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.test-assertion-field {
+  flex: 2;
+  background: transparent;
+  color: #9cdcfe;
+  border: none;
+  border-bottom: 1px solid #555;
+  padding: 6px 4px;
+  font-size: 13px;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  outline: none;
+  min-width: 120px;
+}
+
+.test-assertion-field:focus {
+  border-bottom-color: #007acc;
+}
+
+.test-assertion-operator {
+  background: #3c3c3c;
+  color: #d4d4d4;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.test-assertion-value {
+  flex: 2;
+  background: transparent;
+  color: #d4d4d4;
+  border: none;
+  border-bottom: 1px solid #555;
+  padding: 6px 4px;
+  font-size: 13px;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  outline: none;
+  min-width: 80px;
+}
+
+.test-assertion-value:focus {
+  border-bottom-color: #007acc;
+}
+
+.test-assertion-remove {
+  background: transparent;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.test-assertion-remove:hover {
+  color: #f44747;
+  background: rgba(244, 71, 71, 0.1);
+}
+
+.test-assertion-row .test-result-actual {
+  color: #f44747;
+  font-size: 12px;
+  width: 100%;
+  padding-left: 24px;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+}
+
+.test-assertion-add {
+  background: transparent;
+  border: 1px dashed #555;
+  color: #888;
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  margin-top: 8px;
+}
+
+.test-assertion-add:hover {
+  color: #d4d4d4;
+  border-color: #888;
+}
+
+.test-results-summary-bar {
+  display: flex;
+  gap: 12px;
+  padding: 8px 20px;
+  border-top: 1px solid #3c3c3c;
+  font-size: 12px;
+}
+
 /* Tab badges */
 .tab-badge {
   font-size: 10px;
