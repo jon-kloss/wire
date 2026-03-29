@@ -1,6 +1,8 @@
 /// A discovered HTTP endpoint from source code analysis.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DiscoveredEndpoint {
+    /// Group name for organizing into folders (controller name, router file, or route prefix)
+    pub group: String,
     /// HTTP method (GET, POST, PUT, PATCH, DELETE)
     pub method: String,
     /// Route pattern with Wire {{variable}} syntax (e.g., /api/users/{{id}})

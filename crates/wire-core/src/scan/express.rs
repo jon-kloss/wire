@@ -16,7 +16,7 @@ pub fn scan_express(project_dir: &Path) -> (Vec<DiscoveredEndpoint>, usize) {
         };
         files_scanned += 1;
 
-        let file_endpoints = parse_express_routes(&content);
+        let file_endpoints = parse_express_routes(&content, file_path);
         endpoints.extend(file_endpoints);
     }
 
@@ -74,8 +74,20 @@ fn collect_js_files_recursive(dir: &Path, files: &mut Vec<std::path::PathBuf>, d
 /// - `router.get('/users', ...)`
 /// - `app.post('/api/users', ...)`
 /// - `router.route('/users').get(...).post(...)`
-fn parse_express_routes(content: &str) -> Vec<DiscoveredEndpoint> {
+fn parse_express_routes(content: &str, file_path: &Path) -> Vec<DiscoveredEndpoint> {
     let mut endpoints = Vec::new();
+
+    // Derive group from filename: routes/users.js -> "users"
+    let file_group = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("root")
+        .to_lowercase();
+    // Skip generic filenames — fall back to route prefix for these
+    let use_file_group = !matches!(
+        file_group.as_str(),
+        "index" | "app" | "server" | "main" | "routes"
+    );
 
     // Match: router.get('/route', ...) or app.get('/route', ...)
     // Supports both single and double quotes
@@ -90,12 +102,19 @@ fn parse_express_routes(content: &str) -> Vec<DiscoveredEndpoint> {
         let wire_route = convert_express_params(route);
         let name = derive_name(&http_method, route);
 
+        let group = if use_file_group {
+            file_group.clone()
+        } else {
+            group_from_route(route)
+        };
+
         // Try to extract body/query/header usage from the handler
         let handler_start = cap.get(0).unwrap().end();
         let handler_body = extract_handler_body(content, handler_start);
         let ((headers, query_params, body_type), body_fields) = extract_req_usage(&handler_body);
 
         endpoints.push(DiscoveredEndpoint {
+            group,
             method: http_method,
             route: wire_route,
             name,
@@ -118,6 +137,12 @@ fn parse_express_routes(content: &str) -> Vec<DiscoveredEndpoint> {
         let wire_route = convert_express_params(route);
         let after_route = &content[route_cap.get(0).unwrap().end()..];
 
+        let group = if use_file_group {
+            file_group.clone()
+        } else {
+            group_from_route(route)
+        };
+
         // Find chained methods following the .route() call
         // Limit scan to ~500 chars to avoid matching unrelated routes
         let scan_limit = after_route.len().min(500);
@@ -134,6 +159,7 @@ fn parse_express_routes(content: &str) -> Vec<DiscoveredEndpoint> {
             }
 
             endpoints.push(DiscoveredEndpoint {
+                group: group.clone(),
                 method: http_method,
                 route: wire_route.clone(),
                 name,
@@ -148,6 +174,16 @@ fn parse_express_routes(content: &str) -> Vec<DiscoveredEndpoint> {
     }
 
     endpoints
+}
+
+/// Derive group from route prefix: /api/users/:id -> "users"
+fn group_from_route(route: &str) -> String {
+    route
+        .trim_start_matches('/')
+        .split('/')
+        .find(|s| !s.is_empty() && *s != "api" && !s.starts_with(':') && !s.starts_with('{'))
+        .unwrap_or("root")
+        .to_lowercase()
 }
 
 /// Convert Express route parameters :param to Wire {{param}} syntax.
@@ -319,7 +355,7 @@ router.delete('/users/:id', (req, res) => {
     res.sendStatus(204);
 });
 "#;
-        let endpoints = parse_express_routes(code);
+        let endpoints = parse_express_routes(code, Path::new("routes/test.js"));
         assert_eq!(endpoints.len(), 4);
 
         assert_eq!(endpoints[0].method, "GET");
@@ -351,7 +387,7 @@ app.post('/api/users', (req, res) => {
     res.json(req.body);
 });
 "#;
-        let endpoints = parse_express_routes(code);
+        let endpoints = parse_express_routes(code, Path::new("routes/test.js"));
         assert_eq!(endpoints.len(), 2);
 
         assert_eq!(endpoints[0].method, "GET");
@@ -372,7 +408,7 @@ router.get('/search', (req, res) => {
     res.json([]);
 });
 "#;
-        let endpoints = parse_express_routes(code);
+        let endpoints = parse_express_routes(code, Path::new("routes/test.js"));
         assert_eq!(endpoints.len(), 1);
         assert_eq!(endpoints[0].query_params.len(), 3);
         assert_eq!(endpoints[0].query_params[0].0, "q");
@@ -388,7 +424,7 @@ router.get('/search', (req, res) => {
     res.json([]);
 });
 "#;
-        let endpoints = parse_express_routes(code);
+        let endpoints = parse_express_routes(code, Path::new("routes/test.js"));
         assert_eq!(endpoints.len(), 1);
         assert_eq!(endpoints[0].query_params.len(), 2);
         assert_eq!(endpoints[0].query_params[0].0, "q");
@@ -404,7 +440,7 @@ router.get('/protected', (req, res) => {
     res.json({});
 });
 "#;
-        let endpoints = parse_express_routes(code);
+        let endpoints = parse_express_routes(code, Path::new("routes/test.js"));
         assert_eq!(endpoints.len(), 1);
         assert_eq!(endpoints[0].headers.len(), 2);
         assert_eq!(endpoints[0].headers[0].0, "authorization");
@@ -428,7 +464,7 @@ router.route('/users')
     .get((req, res) => { res.json([]); })
     .post((req, res) => { res.json(req.body); });
 "#;
-        let endpoints = parse_express_routes(code);
+        let endpoints = parse_express_routes(code, Path::new("routes/test.js"));
         assert_eq!(endpoints.len(), 2);
         assert_eq!(endpoints[0].method, "GET");
         assert_eq!(endpoints[0].route, "/users");
@@ -451,7 +487,7 @@ router.put('/items/:id', (req: Request, res: Response) => {
     res.json(item);
 });
 "#;
-        let endpoints = parse_express_routes(code);
+        let endpoints = parse_express_routes(code, Path::new("routes/test.js"));
         assert_eq!(endpoints.len(), 2);
         assert_eq!(endpoints[0].method, "GET");
         assert_eq!(endpoints[0].route, "/items");
@@ -467,7 +503,7 @@ router.get('/orgs/:orgId/teams/:teamId/members', (req, res) => {
     res.json([]);
 });
 "#;
-        let endpoints = parse_express_routes(code);
+        let endpoints = parse_express_routes(code, Path::new("routes/test.js"));
         assert_eq!(endpoints.len(), 1);
         assert_eq!(
             endpoints[0].route,
@@ -483,7 +519,7 @@ const users = db.get('users');
 const config = app.get('port');  // app.get with non-path string — should not match
 console.log('Starting server...');
 "#;
-        let endpoints = parse_express_routes(code);
+        let endpoints = parse_express_routes(code, Path::new("routes/test.js"));
         // app.get('port') doesn't match because 'port' doesn't start with '/'
         assert!(endpoints.is_empty());
     }
@@ -569,7 +605,7 @@ router.get('/search', (req, res) => {
     res.json([]);
 });
 "#;
-        let endpoints = parse_express_routes(code);
+        let endpoints = parse_express_routes(code, Path::new("routes/test.js"));
         assert_eq!(endpoints[0].query_params.len(), 1);
     }
 
@@ -591,7 +627,7 @@ router.get('/search', (req, res) => {
 router.get("/users", (req, res) => { res.json([]); });
 router.post("/users/:id", (req, res) => { res.json(req.body); });
 "#;
-        let endpoints = parse_express_routes(code);
+        let endpoints = parse_express_routes(code, Path::new("routes/test.js"));
         assert_eq!(endpoints.len(), 2);
         assert_eq!(endpoints[0].route, "/users");
         assert_eq!(endpoints[1].route, "/users/{{id}}");
@@ -605,7 +641,7 @@ router.post('/users', (req, res) => {
     res.json({ name, email, age });
 });
 "#;
-        let endpoints = parse_express_routes(code);
+        let endpoints = parse_express_routes(code, Path::new("routes/test.js"));
         assert_eq!(endpoints.len(), 1);
         assert_eq!(endpoints[0].body_type, Some("JSON".to_string()));
         assert_eq!(endpoints[0].body_fields.len(), 3);
@@ -623,7 +659,7 @@ router.post('/items', (req, res) => {
     res.json({ title, price });
 });
 "#;
-        let endpoints = parse_express_routes(code);
+        let endpoints = parse_express_routes(code, Path::new("routes/test.js"));
         assert_eq!(endpoints.len(), 1);
         assert_eq!(endpoints[0].body_fields.len(), 2);
         assert_eq!(endpoints[0].body_fields[0].0, "title");
@@ -637,7 +673,7 @@ router.get('/items', (req, res) => {
     res.json([]);
 });
 "#;
-        let endpoints = parse_express_routes(code);
+        let endpoints = parse_express_routes(code, Path::new("routes/test.js"));
         assert_eq!(endpoints.len(), 1);
         assert!(endpoints[0].body_fields.is_empty());
         assert!(endpoints[0].body_type.is_none());

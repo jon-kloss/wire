@@ -489,24 +489,23 @@ fn cmd_drift(project_dir: &str, wire_dir: &str, fix: bool, output: &str) -> i32 
         for item in &report.items {
             match item.category {
                 drift::DriftCategory::New => {
-                    // Add missing request files
-                    let slug = item
-                        .name
-                        .replace(|c: char| !c.is_alphanumeric() && c != '-', "-")
-                        .to_lowercase();
-                    let file_path = requests_dir.join(format!("{slug}.wire.yaml"));
-                    if file_path.exists() {
-                        // Try with method prefix to avoid collision
-                        let file_path = requests_dir
-                            .join(format!("{}-{slug}.wire.yaml", item.method.to_lowercase()));
+                    if let Some(ep) = scan_result
+                        .endpoints
+                        .iter()
+                        .find(|ep| ep.method == item.method && ep.route == item.route)
+                    {
+                        let slug = item
+                            .name
+                            .replace(|c: char| !c.is_alphanumeric() && c != '-', "-")
+                            .to_lowercase();
+                        let group_dir = requests_dir.join(&ep.group);
+                        let _ = std::fs::create_dir_all(&group_dir);
+                        let mut file_path = group_dir.join(format!("{slug}.wire.yaml"));
                         if file_path.exists() {
-                            continue;
+                            file_path = group_dir
+                                .join(format!("{}-{slug}.wire.yaml", item.method.to_lowercase()));
                         }
-                        if let Some(ep) = scan_result
-                            .endpoints
-                            .iter()
-                            .find(|ep| ep.method == item.method && ep.route == item.route)
-                        {
+                        if !file_path.exists() {
                             let request = wire_core::scan::endpoint_to_request(ep);
                             if let Ok(yaml) = serde_yaml::to_string(&request) {
                                 if std::fs::write(&file_path, yaml).is_ok() {
@@ -517,22 +516,6 @@ fn cmd_drift(project_dir: &str, wire_dir: &str, fix: bool, output: &str) -> i32 
                                         file_path.display()
                                     );
                                 }
-                            }
-                        }
-                    } else if let Some(ep) = scan_result
-                        .endpoints
-                        .iter()
-                        .find(|ep| ep.method == item.method && ep.route == item.route)
-                    {
-                        let request = wire_core::scan::endpoint_to_request(ep);
-                        if let Ok(yaml) = serde_yaml::to_string(&request) {
-                            if std::fs::write(&file_path, yaml).is_ok() {
-                                println!(
-                                    "  {} {} {}",
-                                    "+".green().bold(),
-                                    "added".green(),
-                                    file_path.display()
-                                );
                             }
                         }
                     }

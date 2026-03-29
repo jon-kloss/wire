@@ -270,6 +270,7 @@ fn parse_controllers(content: &str) -> Vec<DiscoveredEndpoint> {
             let response_type = extract_response_type(sig_text);
 
             endpoints.push(DiscoveredEndpoint {
+                group: controller_short.clone(),
                 method: http_method,
                 route: wire_route,
                 name: method_name.to_string(),
@@ -307,7 +308,16 @@ fn parse_minimal_apis(content: &str) -> Vec<DiscoveredEndpoint> {
 
         let (headers, query_params, body_type) = parse_minimal_api_params(params_str);
 
+        // Derive group from route prefix: /api/users/{id} → "users"
+        let group = route
+            .trim_start_matches('/')
+            .split('/')
+            .find(|s| !s.is_empty() && *s != "api")
+            .unwrap_or("root")
+            .to_lowercase();
+
         endpoints.push(DiscoveredEndpoint {
+            group,
             method: http_method,
             route: wire_route,
             name,

@@ -277,6 +277,7 @@ mod tests {
 
     fn make_endpoint(method: &str, route: &str) -> DiscoveredEndpoint {
         DiscoveredEndpoint {
+            group: "test".into(),
             method: method.into(),
             route: route.into(),
             name: format!("{method} {route}"),

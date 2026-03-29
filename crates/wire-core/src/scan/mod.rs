@@ -104,11 +104,13 @@ pub fn scan_and_create_collection(
         }
     }
 
-    // Write each endpoint as a .wire.yaml request file
+    // Write each endpoint as a .wire.yaml request file, grouped by controller/router
     for endpoint in &scan.endpoints {
         let request = endpoint_to_request(endpoint);
         let filename = slugify(&endpoint.name) + ".wire.yaml";
-        let file_path = wire_dir.join("requests").join(&filename);
+        let group_dir = wire_dir.join("requests").join(&endpoint.group);
+        std::fs::create_dir_all(&group_dir)?;
+        let file_path = group_dir.join(&filename);
 
         // Avoid overwriting duplicates — append a number
         let final_path = unique_path(&file_path);
@@ -583,6 +585,7 @@ public class UsersController : ControllerBase
     #[test]
     fn endpoint_to_request_maps_all_fields() {
         let ep = DiscoveredEndpoint {
+            group: "users".to_string(),
             method: "POST".to_string(),
             route: "/api/users".to_string(),
             name: "CreateUser".to_string(),
