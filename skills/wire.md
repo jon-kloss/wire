@@ -8,8 +8,11 @@ You have access to `wire`, a CLI tool for HTTP requests, API testing, request ch
 
 ```bash
 wire send <file> -d .wire -e <env>           # send a request
+wire send <file> --snapshot -d .wire         # send and save response as golden file
 wire test <path> -d .wire -e <env>           # run test assertions
+wire test <path> --snapshot -d .wire         # test + diff against saved snapshot
 wire chain run <file> -d .wire -e <env>      # execute a chain
+wire snapshot update <file> -d .wire         # overwrite snapshot with current response
 wire generate <dir>                           # generate collection from code
 wire drift <dir> .wire [--fix]               # detect/fix endpoint drift
 wire env check -d .wire                       # validate secret references

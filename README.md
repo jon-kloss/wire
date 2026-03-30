@@ -104,6 +104,36 @@ variables:
   token: dev-token-123
 ```
 
+### Response Snapshots (Golden File Testing)
+
+Save API responses as golden file snapshots and detect regressions by diffing future responses against them.
+
+```bash
+# Save a snapshot
+wire send .wire/requests/users/list.wire.yaml --snapshot -d .wire
+
+# Test against saved snapshot (exit 1 if differences)
+wire test .wire/requests/users/list.wire.yaml --snapshot -d .wire
+
+# Update snapshot with current response
+wire snapshot update .wire/requests/users/list.wire.yaml -d .wire
+```
+
+Snapshots are stored as canonical JSON in `.wire/snapshots/`, mirroring the request directory structure. Configure per-request ignore rules for dynamic fields:
+
+```yaml
+name: List Users
+method: GET
+url: "{{base_url}}/api/users"
+snapshot:
+  ignore:
+    - body.timestamp
+    - body.users[*].last_login
+    - body.request_id
+```
+
+The structural JSON diff engine reports added, removed, and changed fields with human-readable paths (e.g. `body.users[0].name: "Alice" → "Bob"`). Status code and content-type header changes are also detected.
+
 ### Secret References
 
 Instead of storing plaintext secrets, reference them from external sources using `$` prefixes:
