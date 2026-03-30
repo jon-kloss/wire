@@ -150,38 +150,6 @@ variables:
   token: dev-token-123
 ```
 
-### Response Snapshots (Golden File Testing)
-
-Save API responses as golden file snapshots and detect regressions by diffing future responses against them.
-
-```bash
-# Save a snapshot
-wire send .wire/requests/users/list.wire.yaml --snapshot -d .wire
-
-# Test against saved snapshot (exit 1 if differences)
-wire test .wire/requests/users/list.wire.yaml --snapshot -d .wire
-
-# Update snapshot with current response
-wire snapshot update .wire/requests/users/list.wire.yaml -d .wire
-```
-
-Snapshots are stored as canonical JSON in `.wire/snapshots/`, mirroring the request directory structure. Configure per-request ignore rules for dynamic fields:
-
-```yaml
-name: List Users
-method: GET
-url: "{{base_url}}/api/users"
-snapshot:
-  ignore:
-    - body.timestamp
-    - body.users[*].last_login
-    - body.request_id
-```
-
-The structural JSON diff engine reports added, removed, and changed fields with human-readable paths (e.g. `body.users[0].name: "Alice" → "Bob"`). Status code and content-type header changes are also detected.
-
-### Secret References
-
 Instead of storing plaintext secrets, reference them from external sources using `$` prefixes:
 
 ```yaml
@@ -210,6 +178,36 @@ wire env check -d .wire
 ```
 
 In the GUI, secret values are masked by default. Use the lock/unlock toggle in the toolbar to reveal them for the current session.
+
+## Response Snapshots
+
+Save API responses as golden file snapshots and detect regressions by diffing future responses against them.
+
+```bash
+# Save a snapshot
+wire send .wire/requests/users/list.wire.yaml --snapshot -d .wire
+
+# Test against saved snapshot (exit 1 if differences)
+wire test .wire/requests/users/list.wire.yaml --snapshot -d .wire
+
+# Update snapshot with current response
+wire snapshot update .wire/requests/users/list.wire.yaml -d .wire
+```
+
+Snapshots are stored as canonical JSON in `.wire/snapshots/`, mirroring the request directory structure. Configure per-request ignore rules for dynamic fields:
+
+```yaml
+name: List Users
+method: GET
+url: "{{base_url}}/api/users"
+snapshot:
+  ignore:
+    - body.timestamp
+    - body.users[*].last_login
+    - body.request_id
+```
+
+The structural JSON diff engine reports added, removed, and changed fields with human-readable paths (e.g. `body.users[0].name: "Alice" → "Bob"`). Status code and content-type header changes are also detected.
 
 ## Request Chaining
 
@@ -250,8 +248,9 @@ In the GUI, click a request with a chain section to see the step list, then clic
 Compare your collection against source code to find endpoints that are new, stale, or changed:
 
 ```bash
-wire drift ./src .wire               # detect drift
-wire drift ./src .wire --fix         # auto-sync collection to match code
+wire drift ./src                     # detect drift (uses .wire by default)
+wire drift ./src -d .wire            # explicit collection directory
+wire drift ./src --fix               # auto-sync collection to match code
 ```
 
 In the GUI, use the **Drift** tab in the sidebar to check drift for any collection that was generated from a codebase.
@@ -349,8 +348,8 @@ wire test <path> --snapshot -d .wire  # test + diff against saved snapshot
 wire chain run <file> -d .wire        # execute a request chain
 wire snapshot update <file> -d .wire  # overwrite snapshot with current response
 wire generate <project_dir>           # generate collection from source code
-wire drift <project_dir> .wire        # detect endpoint drift
-wire drift <project_dir> .wire --fix  # auto-fix drift
+wire drift <project_dir>              # detect endpoint drift
+wire drift <project_dir> --fix        # auto-fix drift
 wire env check -d .wire               # validate secret references
 wire template list .wire              # list available templates
 wire history                           # view request history

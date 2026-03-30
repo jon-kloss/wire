@@ -11,14 +11,19 @@ wire send <file> -d .wire -e <env>           # send a request
 wire send <file> --snapshot -d .wire         # send and save response as golden file
 wire test <path> -d .wire -e <env>           # run test assertions
 wire test <path> --snapshot -d .wire         # test + diff against saved snapshot
+wire test <path> -d .wire -o json            # JSON output for CI
 wire chain run <file> -d .wire -e <env>      # execute a chain
 wire snapshot update <file> -d .wire         # overwrite snapshot with current response
 wire generate <dir>                           # generate collection from code
-wire drift <dir> .wire [--fix]               # detect/fix endpoint drift
+wire generate <dir> -o <output>              # generate to custom output dir
+wire drift <dir> -d .wire                    # detect endpoint drift
+wire drift <dir> -d .wire --fix              # auto-fix drift (create/update/delete)
+wire drift <dir> -d .wire -o json            # JSON drift output for CI
 wire env check -d .wire                       # validate secret references
 wire list .wire                               # list collection
 wire template list .wire                      # list templates
 wire history -d .wire                         # view history
+wire history clear                            # clear all history
 ```
 
 **CRITICAL: File path resolution for `send` and `test` commands.**
@@ -41,6 +46,50 @@ chain:
   - run: users/create        # resolves to .wire/requests/users/create.wire.yaml
   - run: users/get-by-id     # short names ONLY work inside chain definitions
 ```
+
+## CRITICAL: Exact YAML Format Reference
+
+**Do NOT invent field names. Use ONLY these exact fields and structures.**
+
+**Request file format (every field shown):**
+```yaml
+name: Create User                    # REQUIRED: human-readable name
+method: POST                         # REQUIRED: GET, POST, PUT, PATCH, DELETE
+url: "{{base_url}}/api/users"       # REQUIRED: URL with {{variable}} interpolation
+extends: authenticated               # optional: template name (NOT "template:")
+headers:                             # optional: key-value pairs
+  Content-Type: application/json
+params:                              # optional: query parameters
+  page: "1"
+body:                                # optional: request body
+  type: json                         #   REQUIRED if body: json, text, or form_data
+  content:                           #   REQUIRED if body: the actual content
+    name: Test User
+    email: test@example.com
+tests:                               # optional: test assertions (see reference below)
+  - field: status                    #   REQUIRED per assertion: what to check
+    equals: 201                      #   REQUIRED per assertion: operator + value
+  - field: body.id
+    is_number: true
+  - field: body.name
+    equals: Test User
+snapshot:                            # optional: snapshot config
+  ignore:                            #   fields to ignore in snapshot diff
+    - body.timestamp
+chain:                               # optional: multi-step flow
+  - run: users/create               #   REQUIRED per step: short path to request
+    extract:                         #   optional: extract values from response
+      user_id: body.id
+  - run: users/get-by-id
+```
+
+**WRONG field names (do NOT use these):**
+- ❌ `template:` → use `extends:`
+- ❌ `steps:` → use `chain:`
+- ❌ `request:` or `file:` → use `run:`
+- ❌ `variables:` → use `extract:`
+- ❌ `assert:` or `expect:` → use `field:` + operator
+- ❌ `body: { json: {} }` → use `body: { type: json, content: {} }`
 
 **Exact directory structure. Do NOT deviate:**
 
@@ -176,7 +225,7 @@ When you encounter a project with HTTP endpoints:
 - **Existing endpoints lack request files?** Create them — don't leave gaps
 - **Endpoint changed?** Update the request file and its tests
 - **Endpoint removed?** Delete the request file
-- **Source code exists?** Run `wire drift . .wire` to check for drift
+- **Source code exists?** Run `wire drift . -d .wire` to check for drift
 
 ### 4. ALWAYS Use Templates for Shared Patterns
 
