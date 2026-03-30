@@ -15,6 +15,12 @@ pub struct RequestTestResult {
     pub status: Option<u16>,
     pub assertions: Vec<TestResult>,
     pub error: Option<String>,
+    /// Response body (needed for snapshot diffing)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_body: Option<String>,
+    /// Response headers (needed for snapshot diffing)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<std::collections::HashMap<String, String>>,
 }
 
 impl RequestTestResult {
@@ -87,6 +93,8 @@ pub async fn run_tests(
                     status: None,
                     assertions: Vec::new(),
                     error: Some(format!("Failed to load: {e}")),
+                    response_body: None,
+                    headers: None,
                 });
                 continue;
             }
@@ -135,6 +143,8 @@ async fn run_request_tests(
                 status: None,
                 assertions: Vec::new(),
                 error: Some(format!("Request failed: {e}")),
+                response_body: None,
+                headers: None,
             };
         }
     };
@@ -149,6 +159,8 @@ async fn run_request_tests(
         status: Some(response.status),
         assertions,
         error: None,
+        response_body: Some(response.body.clone()),
+        headers: Some(response.headers.clone()),
     }
 }
 

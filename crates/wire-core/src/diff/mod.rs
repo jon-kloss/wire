@@ -5,7 +5,7 @@ pub mod ignore;
 pub use engine::structural_diff;
 
 /// The kind of difference found between two JSON values.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DiffKind {
     Added,
     Removed,
@@ -13,7 +13,11 @@ pub enum DiffKind {
 }
 
 /// A single difference at a specific JSON path.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Arrays are compared by index position, not by content identity.
+/// If items shift positions (e.g. insert at index 0), all subsequent
+/// indices will report as Changed.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DiffEntry {
     /// Human-readable path, e.g. "users[0].name"
     pub path: String,

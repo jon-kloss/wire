@@ -32,6 +32,10 @@ enum Commands {
         /// Path to .wire collection directory (for environments)
         #[arg(short = 'd', long, default_value = ".wire")]
         wire_dir: String,
+
+        /// Save the response as a golden file snapshot
+        #[arg(long)]
+        snapshot: bool,
     },
     /// List requests in a .wire collection directory
     List {
@@ -55,6 +59,10 @@ enum Commands {
         /// Output format: text or json
         #[arg(short, long, default_value = "text")]
         output: String,
+
+        /// Diff response against saved snapshot
+        #[arg(long)]
+        snapshot: bool,
     },
     /// Execute a request chain (multi-step API flow)
     Chain {
@@ -96,6 +104,11 @@ enum Commands {
     Env {
         #[command(subcommand)]
         action: EnvAction,
+    },
+    /// Manage response snapshots (golden files)
+    Snapshot {
+        #[command(subcommand)]
+        action: SnapshotAction,
     },
     /// Install Wire's Claude Code skill to ~/.claude/commands/
     InstallClaudeSkill,
@@ -154,6 +167,23 @@ enum TemplateAction {
 }
 
 #[derive(Subcommand)]
+enum SnapshotAction {
+    /// Update (overwrite) a snapshot with the current response
+    Update {
+        /// Path to the .wire.yaml request file
+        file: String,
+
+        /// Environment to use (e.g., dev, prod)
+        #[arg(short, long)]
+        env: Option<String>,
+
+        /// Path to .wire collection directory
+        #[arg(short = 'd', long, default_value = ".wire")]
+        wire_dir: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum HistoryAction {
     /// Clear all request history
     Clear,
@@ -168,8 +198,9 @@ async fn main() {
             file,
             env,
             wire_dir,
+            snapshot,
         } => {
-            if let Err(e) = cmd_send(&file, env.as_deref(), &wire_dir).await {
+            if let Err(e) = cmd_send(&file, env.as_deref(), &wire_dir, snapshot).await {
                 eprintln!("{}: {e}", "Error".red().bold());
                 std::process::exit(1);
             }
@@ -179,8 +210,9 @@ async fn main() {
             env,
             wire_dir,
             output,
+            snapshot,
         } => {
-            let exit_code = cmd_test(&path, env.as_deref(), &wire_dir, &output).await;
+            let exit_code = cmd_test(&path, env.as_deref(), &wire_dir, &output, snapshot).await;
             std::process::exit(exit_code);
         }
         Commands::List { dir } => {
@@ -198,6 +230,18 @@ async fn main() {
             let exit_code = cmd_drift(&project_dir, &wire_dir, fix, &output);
             std::process::exit(exit_code);
         }
+        Commands::Snapshot { action } => match action {
+            SnapshotAction::Update {
+                file,
+                env,
+                wire_dir,
+            } => {
+                if let Err(e) = cmd_snapshot_update(&file, env.as_deref(), &wire_dir).await {
+                    eprintln!("{}: {e}", "Error".red().bold());
+                    std::process::exit(1);
+                }
+            }
+        },
         Commands::InstallClaudeSkill => {
             cmd_install_claude_skill();
         }
@@ -252,6 +296,7 @@ async fn cmd_send(
     file: &str,
     env_name: Option<&str>,
     wire_dir: &str,
+    save_snapshot: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Load the request (with template resolution)
     let request = load_request_resolved(Path::new(file), Path::new(wire_dir))?;
@@ -345,10 +390,45 @@ async fn cmd_send(
         eprintln!("{}: failed to save history: {e}", "Warning".yellow());
     }
 
+    // Save snapshot if requested
+    if save_snapshot {
+        let snap = wire_core::snapshot::snapshot_from_response(
+            response.status,
+            &response.headers,
+            &response.body,
+        );
+        let request_relative = file
+            .trim_start_matches(wire_dir)
+            .trim_start_matches('/')
+            .trim_start_matches('\\');
+        match wire_core::snapshot::save_snapshot(&snap, Path::new(wire_dir), request_relative) {
+            Ok(path) => {
+                println!();
+                println!(
+                    "{} Snapshot saved: {}",
+                    "\u{2713}".green().bold(),
+                    path.display()
+                );
+            }
+            Err(e) => {
+                eprintln!(
+                    "{}: failed to save snapshot: {e}",
+                    "Warning".yellow().bold()
+                );
+            }
+        }
+    }
+
     Ok(())
 }
 
-async fn cmd_test(path: &str, env_name: Option<&str>, wire_dir: &str, output: &str) -> i32 {
+async fn cmd_test(
+    path: &str,
+    env_name: Option<&str>,
+    wire_dir: &str,
+    output: &str,
+    check_snapshot: bool,
+) -> i32 {
     let wire_path = Path::new(wire_dir);
     let wd = if wire_path.is_dir() {
         Some(wire_path)
@@ -376,10 +456,119 @@ async fn cmd_test(path: &str, env_name: Option<&str>, wire_dir: &str, output: &s
         print_test_results(&summary);
     }
 
-    if summary.all_passed() {
-        0
-    } else {
+    let mut exit_code = if summary.all_passed() { 0 } else { 1 };
+
+    // Snapshot diff if requested
+    if check_snapshot {
+        let snapshot_exit = run_snapshot_diff(path, wire_dir, &summary);
+        if snapshot_exit != 0 {
+            exit_code = snapshot_exit;
+        }
+    }
+
+    exit_code
+}
+
+fn run_snapshot_diff(_path: &str, wire_dir: &str, summary: &runner::TestRunSummary) -> i32 {
+    use wire_core::diff::{format::format_diff, ignore::parse_ignore_rules, structural_diff};
+    use wire_core::snapshot::{load_snapshot, snapshot_from_response};
+
+    let wire_path = Path::new(wire_dir);
+    let mut has_diffs = false;
+
+    for result in &summary.results {
+        // We need the response data from the test result
+        let Some(ref response_body) = result.response_body else {
+            continue;
+        };
+
+        let request_relative = result
+            .file
+            .trim_start_matches(wire_dir)
+            .trim_start_matches('/')
+            .trim_start_matches('\\');
+
+        let saved = match load_snapshot(wire_path, request_relative) {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                println!(
+                    "\n{} No snapshot for {} — run with {} to create one",
+                    "!".yellow().bold(),
+                    result.name,
+                    "wire send --snapshot".cyan()
+                );
+                continue;
+            }
+            Err(e) => {
+                eprintln!("{}: loading snapshot: {e}", "Error".red().bold());
+                continue;
+            }
+        };
+
+        let status = result.status.unwrap_or(0);
+        let headers = result.headers.as_ref().cloned().unwrap_or_default();
+        let current = snapshot_from_response(status, &headers, response_body);
+
+        // Load ignore rules from the request file
+        let ignore_rules = if let Ok(req) = load_request(Path::new(&result.file)) {
+            req.snapshot
+                .map(|c| parse_ignore_rules(&c.ignore))
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        // Diff status
+        let mut all_diffs = Vec::new();
+        if saved.status != current.status {
+            all_diffs.push(wire_core::diff::DiffEntry {
+                path: "status".to_string(),
+                kind: wire_core::diff::DiffKind::Changed,
+                old: Some(serde_json::json!(saved.status)),
+                new: Some(serde_json::json!(current.status)),
+            });
+        }
+
+        // Diff body
+        let body_diffs = structural_diff(&saved.body, &current.body);
+        let body_diffs: Vec<_> = body_diffs
+            .into_iter()
+            .map(|mut d| {
+                d.path = if d.path.is_empty() {
+                    "body".to_string()
+                } else {
+                    format!("body.{}", d.path)
+                };
+                d
+            })
+            .collect();
+
+        all_diffs.extend(body_diffs);
+
+        // Apply ignore rules
+        let filtered = wire_core::diff::ignore::filter_diffs(all_diffs, &ignore_rules);
+
+        if filtered.is_empty() {
+            println!(
+                "\n{} {} snapshot matches",
+                "\u{2713}".green().bold(),
+                result.name
+            );
+        } else {
+            has_diffs = true;
+            println!(
+                "\n{} {} snapshot differs:",
+                "\u{2717}".red().bold(),
+                result.name
+            );
+            println!("{}", format_diff(&filtered));
+        }
+    }
+
+    if has_diffs {
         1
+    } else {
+        0
     }
 }
 
@@ -823,6 +1012,66 @@ fn cmd_uninstall_claude_skill() {
         "{}",
         "To fully remove Wire, run: cargo uninstall wire-cli".dimmed()
     );
+}
+
+async fn cmd_snapshot_update(
+    file: &str,
+    env_name: Option<&str>,
+    wire_dir: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let request = load_request_resolved(Path::new(file), Path::new(wire_dir))?;
+
+    let mut scope = VariableScope::new();
+    let wire_path = Path::new(wire_dir);
+    if wire_path.is_dir() {
+        let collection = load_collection(wire_path)?;
+        let active_env = env_name
+            .map(|s| s.to_string())
+            .or(collection.metadata.active_env);
+        if let Some(env_key) = &active_env {
+            if let Some(environment) = collection.environments.get(env_key) {
+                scope.push_layer(environment.variables.clone());
+            }
+        }
+    }
+
+    let client = HttpClient::new()?;
+
+    println!(
+        "{} {} {}",
+        "\u{2192}".blue().bold(),
+        request.method.cyan().bold(),
+        request.url
+    );
+
+    let response = execute(&client, &request, &scope).await?;
+
+    println!(
+        "  {} {}  {} {}ms",
+        "Status:".dimmed(),
+        response.status,
+        "Time:".dimmed(),
+        response.elapsed.as_millis()
+    );
+
+    let snap = wire_core::snapshot::snapshot_from_response(
+        response.status,
+        &response.headers,
+        &response.body,
+    );
+    let request_relative = file
+        .trim_start_matches(wire_dir)
+        .trim_start_matches('/')
+        .trim_start_matches('\\');
+    let path = wire_core::snapshot::save_snapshot(&snap, Path::new(wire_dir), request_relative)?;
+
+    println!(
+        "{} Snapshot updated: {}",
+        "\u{2713}".green().bold(),
+        path.display()
+    );
+
+    Ok(())
 }
 
 fn cmd_env_check(wire_dir: &str) -> i32 {
