@@ -329,13 +329,20 @@ cd ui && npm install && cd ..
 cargo tauri dev
 ```
 
-### Install the CLI
+### Download a Release
+
+Pre-built binaries are available on the [Releases page](https://github.com/jon-kloss/wire/releases).
+
+- **CLI binary** — for CI pipelines, scripting, and Claude Code integration. This is all you need for `wire test`, `wire send`, `wire drift`, and all other commands. Download the `wire-*` file matching your platform, make it executable, and add it to your PATH.
+- **Desktop app** — full GUI with visual request builder, collection manager, and response viewer. The desktop app includes the CLI. Download the `.dmg` (macOS), `.deb`/`.AppImage` (Linux), or `.msi`/`.exe` (Windows) installer.
+
+### Build from Source
 
 ```bash
 cargo install --path crates/wire-cli
 ```
 
-This installs `wire` globally. You can then use it from any directory.
+This builds and installs the `wire` CLI globally. You can then use it from any directory.
 
 ### CLI Commands
 
