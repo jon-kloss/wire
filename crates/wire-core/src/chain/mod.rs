@@ -18,13 +18,6 @@ pub struct ChainStep {
     /// Variables to extract from the response: { var_name: "body.field" | "headers.name" | "status" }
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub extract: HashMap<String, String>,
-    /// If true, persist extracted variables to the active environment file
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub persist: bool,
-}
-
-fn is_false(b: &bool) -> bool {
-    !b
 }
 
 /// Result of executing a single chain step.
@@ -284,7 +277,6 @@ run: auth/login
 extract:
   token: body.token
   session_id: headers.x-session-id
-persist: true
 "#;
         let step: ChainStep = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(step.run, "auth/login");
@@ -293,7 +285,6 @@ persist: true
             step.extract.get("session_id").unwrap(),
             "headers.x-session-id"
         );
-        assert!(step.persist);
     }
 
     #[test]
@@ -302,7 +293,6 @@ persist: true
         let step: ChainStep = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(step.run, "users/list");
         assert!(step.extract.is_empty());
-        assert!(!step.persist);
     }
 
     #[test]
@@ -310,12 +300,9 @@ persist: true
         let step = ChainStep {
             run: "test".to_string(),
             extract: HashMap::new(),
-            persist: false,
         };
         let yaml = serde_yaml::to_string(&step).unwrap();
-        // Use colon suffix to avoid false matches from field values
         assert!(!yaml.contains("extract:"));
-        assert!(!yaml.contains("persist:"));
         assert!(yaml.contains("run:"));
     }
 
