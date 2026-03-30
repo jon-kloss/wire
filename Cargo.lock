@@ -5696,7 +5696,7 @@ dependencies = [
 
 [[package]]
 name = "wire-app"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "serde",
@@ -5711,7 +5711,7 @@ dependencies = [
 
 [[package]]
 name = "wire-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "assert_cmd",
  "chrono",
@@ -5727,7 +5727,7 @@ dependencies = [
 
 [[package]]
 name = "wire-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "dirs",
