@@ -11,6 +11,32 @@ Wire stores requests as human-readable YAML files that live in your repo alongsi
 - **Fast** — Tauri + Rust backend, not Electron
 - **CLI from day one** — same core library powers both the GUI and the `wire` CLI
 
+### What Wire catches that other tests don't
+
+Unit tests verify your code logic. Integration tests verify your components work together. Both run **from the inside** of your application — they import your code, call your functions, and assert on return values.
+
+Wire tests hit your API **from the outside**, the same way a real client would. They catch the class of bugs that live in the seam between "code works correctly" and "HTTP response matches what consumers expect":
+
+- All tests green, but `POST /api/users` returns `user_name` instead of `userName` because someone renamed a serialization attribute
+- The error response changed from `{"error": "msg"}` to `{"message": "msg"}` and the frontend can't parse it
+- A middleware change quietly dropped a required response header
+- The endpoint still returns 200 but pagination cursors are in a different format
+
+These are **contract bugs** — your code does the right thing internally, but the HTTP interface changed in a way that breaks consumers. Unit tests can't see HTTP responses. Integration tests *can* but rarely assert on exact response shapes.
+
+### Wire as part of your test strategy
+
+| Question | Tool |
+|----------|------|
+| Does my validation logic reject invalid emails? | Unit test |
+| Does my service layer create a user and send a welcome email? | Integration test |
+| Does `POST /api/users` return `{"id": int, "email": string}` with a 201? | **Wire test** |
+| Did someone change the response shape without realizing it? | **Wire snapshot** |
+| Does the same endpoint behave identically in dev and staging? | **Wire diff** |
+| Did a new route get added without corresponding API tests? | **Wire drift** |
+
+Wire isn't a replacement for unit or integration tests — it fills the gap between "code works" and "API behaves as expected."
+
 ## Features
 
 - Send HTTP requests (GET, POST, PUT, PATCH, DELETE) from a three-panel GUI
