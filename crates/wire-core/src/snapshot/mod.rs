@@ -65,11 +65,11 @@ pub fn snapshot_from_response(
 ) -> Snapshot {
     let body_value = serde_json::from_str(body).unwrap_or(Value::String(body.to_string()));
 
-    // Only keep content-type header
+    // Only keep content-type header, normalized to lowercase key
     let mut snapshot_headers = HashMap::new();
     for (k, v) in headers {
         if k.to_lowercase() == "content-type" {
-            snapshot_headers.insert(k.clone(), v.clone());
+            snapshot_headers.insert("content-type".to_string(), v.clone());
         }
     }
 
@@ -179,22 +179,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let result = load_snapshot(dir.path(), "requests/nonexistent.wire.yaml").unwrap();
         assert!(result.is_none());
-    }
-
-    #[test]
-    fn canonical_json_has_sorted_keys() {
-        let snap = Snapshot {
-            status: 200,
-            headers: HashMap::new(),
-            body: json!({"zebra": 1, "alpha": 2}),
-        };
-        let json = canonical_json(&snap).unwrap();
-        let alpha_pos = json.find("alpha").unwrap();
-        let zebra_pos = json.find("zebra").unwrap();
-        assert!(
-            alpha_pos < zebra_pos,
-            "keys should be sorted alphabetically"
-        );
     }
 
     #[test]

@@ -460,7 +460,7 @@ async fn cmd_test(
 
     // Snapshot diff if requested
     if check_snapshot {
-        let snapshot_exit = run_snapshot_diff(path, wire_dir, &summary);
+        let snapshot_exit = run_snapshot_diff(wire_dir, &summary);
         if snapshot_exit != 0 {
             exit_code = snapshot_exit;
         }
@@ -469,7 +469,7 @@ async fn cmd_test(
     exit_code
 }
 
-fn run_snapshot_diff(_path: &str, wire_dir: &str, summary: &runner::TestRunSummary) -> i32 {
+fn run_snapshot_diff(wire_dir: &str, summary: &runner::TestRunSummary) -> i32 {
     use wire_core::diff::{format::format_diff, ignore::parse_ignore_rules, structural_diff};
     use wire_core::snapshot::{load_snapshot, snapshot_from_response};
 
@@ -509,14 +509,15 @@ fn run_snapshot_diff(_path: &str, wire_dir: &str, summary: &runner::TestRunSumma
         let headers = result.headers.as_ref().cloned().unwrap_or_default();
         let current = snapshot_from_response(status, &headers, response_body);
 
-        // Load ignore rules from the request file
-        let ignore_rules = if let Ok(req) = load_request(Path::new(&result.file)) {
-            req.snapshot
-                .map(|c| parse_ignore_rules(&c.ignore))
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+        // Load ignore rules from the request file (with template resolution)
+        let ignore_rules =
+            if let Ok(req) = load_request_resolved(Path::new(&result.file), wire_path) {
+                req.snapshot
+                    .map(|c| parse_ignore_rules(&c.ignore))
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
 
         // Diff status
         let mut all_diffs = Vec::new();
@@ -527,6 +528,39 @@ fn run_snapshot_diff(_path: &str, wire_dir: &str, summary: &runner::TestRunSumma
                 old: Some(serde_json::json!(saved.status)),
                 new: Some(serde_json::json!(current.status)),
             });
+        }
+
+        // Diff headers
+        for (k, v) in &saved.headers {
+            match current.headers.get(k) {
+                Some(cv) if cv != v => {
+                    all_diffs.push(wire_core::diff::DiffEntry {
+                        path: format!("headers.{k}"),
+                        kind: wire_core::diff::DiffKind::Changed,
+                        old: Some(serde_json::json!(v)),
+                        new: Some(serde_json::json!(cv)),
+                    });
+                }
+                None => {
+                    all_diffs.push(wire_core::diff::DiffEntry {
+                        path: format!("headers.{k}"),
+                        kind: wire_core::diff::DiffKind::Removed,
+                        old: Some(serde_json::json!(v)),
+                        new: None,
+                    });
+                }
+                _ => {}
+            }
+        }
+        for (k, v) in &current.headers {
+            if !saved.headers.contains_key(k) {
+                all_diffs.push(wire_core::diff::DiffEntry {
+                    path: format!("headers.{k}"),
+                    kind: wire_core::diff::DiffKind::Added,
+                    old: None,
+                    new: Some(serde_json::json!(v)),
+                });
+            }
         }
 
         // Diff body
