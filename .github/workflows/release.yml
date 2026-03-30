@@ -32,7 +32,7 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: wire-aarch64-apple-darwin
-          - os: macos-13
+          - os: macos-latest
             target: x86_64-apple-darwin
             artifact: wire-x86_64-apple-darwin
           - os: ubuntu-22.04
@@ -79,7 +79,7 @@ jobs:
           - os: macos-latest
             args: '--target aarch64-apple-darwin'
             rust-targets: aarch64-apple-darwin
-          - os: macos-13
+          - os: macos-latest
             args: '--target x86_64-apple-darwin'
             rust-targets: x86_64-apple-darwin
           - os: ubuntu-22.04
