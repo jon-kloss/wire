@@ -879,6 +879,7 @@ When working in a project with HTTP APIs, use the `wire` CLI tool. This applies 
 - **Use secrets or tokens** — use secret references ($env:, $dotenv:, $aws:, $vault:) instead of hardcoding values\n\
 - **Scan codebases for endpoints** — use `wire generate` to auto-discover routes and build collections\n\
 - **Check for API drift** — use `wire drift` to compare source code against the collection\n\
+- **Verify response stability** — save snapshots (`wire send --snapshot`) for stable endpoints, then `wire test --snapshot` to catch regressions\n\
 \n\
 Wire keeps all API documentation, tests, and request definitions local in `.wire/` directories. No cloud, no accounts.";
 

@@ -52,6 +52,9 @@ chain:
 │   └── prod.yaml
 ├── templates/                         # shared headers/auth
 │   └── authenticated.wire.yaml
+├── snapshots/                         # golden file snapshots (auto-created by --snapshot)
+│   └── users/
+│       └── list.snapshot.json
 └── requests/                          # ALL requests go here, in subfolders
     ├── auth/
     │   └── login.wire.yaml
@@ -198,7 +201,61 @@ default_templates:
   - authenticated
 ```
 
-### 5. ALWAYS Use Secret References for Sensitive Values
+### 5. ALWAYS Save Snapshots for Stable Endpoints
+
+When an endpoint's response shape is stable and established, **save a snapshot** so future changes are caught automatically. Snapshots are golden files — they capture the exact response structure as a baseline.
+
+**When to create snapshots:**
+- After confirming an endpoint works correctly for the first time
+- After a CRUD chain passes — snapshot the individual GET/list responses
+- When an endpoint's response contract matters (public APIs, integration points)
+- When onboarding to an existing project — snapshot current responses as a baseline
+
+**How to create and use snapshots:**
+```bash
+# 1. Save a snapshot after verifying the endpoint works
+wire send .wire/requests/users/list.wire.yaml --snapshot -d .wire
+
+# 2. Later, test against the snapshot to detect drift
+wire test .wire/requests/users/list.wire.yaml --snapshot -d .wire
+
+# 3. If the response intentionally changed, update the snapshot
+wire snapshot update .wire/requests/users/list.wire.yaml -d .wire
+```
+
+**Configure ignore rules** for dynamic fields that change between requests (timestamps, IDs, tokens). Add these in the request file's `snapshot` section:
+
+```yaml
+name: List Users
+method: GET
+url: "{{base_url}}/api/users"
+snapshot:
+  ignore:
+    - body.timestamp            # exact path match
+    - body.users[*].last_login  # wildcard — matches any array index
+    - body.request_id
+tests:
+  - field: status
+    equals: 200
+```
+
+**Do NOT snapshot:**
+- Endpoints with fully dynamic responses (random data, timestamps everywhere)
+- Endpoints you haven't verified work correctly yet — test first, snapshot after
+- Binary responses (images, files) — snapshots are for JSON/text APIs
+
+**Snapshot diff output** shows structural changes with human-readable paths:
+```
+~ body.users[0].name: "Alice" → "Bob"
++ body.users[0].role: "admin"
+- body.deprecated_field: "old_value"
+
+1 added, 1 removed, 1 changed
+```
+
+Exit code 0 = snapshot matches, exit code 1 = differences found (useful for CI).
+
+### 6. ALWAYS Use Secret References for Sensitive Values
 
 Never put real tokens, passwords, or API keys in environment files:
 
@@ -262,7 +319,9 @@ Follow this every time:
 5. **If shared auth/headers**, create a template in `.wire/templates/`
 6. **Run `wire test`** to verify
 7. **Run `wire chain run`** if chains exist
-8. **Run `wire drift`** if source scanning is available
+8. **Save snapshots** for stable endpoints with `wire send <file> --snapshot -d .wire`
+9. **Add ignore rules** for dynamic fields (timestamps, IDs) in the request's `snapshot` section
+10. **Run `wire drift`** if source scanning is available
 
 ## Important Notes
 
