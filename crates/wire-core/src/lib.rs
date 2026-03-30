@@ -1,5 +1,6 @@
 pub mod chain;
 pub mod collection;
+pub mod diff;
 pub mod drift;
 pub mod error;
 pub mod history;
