@@ -1,4 +1,6 @@
 mod engine;
+pub mod format;
+pub mod ignore;
 
 pub use engine::structural_diff;
 

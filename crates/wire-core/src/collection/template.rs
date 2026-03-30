@@ -148,6 +148,7 @@ pub fn resolve_with_defaults(
         tests: Vec::new(),
         response_schema: Vec::new(),
         chain: Vec::new(),
+        snapshot: None,
     };
 
     for tmpl_name in default_templates {
@@ -263,6 +264,8 @@ fn merge_requests(base: &WireRequest, over: &WireRequest) -> WireRequest {
         } else {
             over.chain.clone()
         },
+        // Snapshot config: override wins if present
+        snapshot: over.snapshot.clone().or_else(|| base.snapshot.clone()),
     }
 }
 
@@ -378,6 +381,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let over = WireRequest {
@@ -391,6 +395,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let merged = merge_requests(&base, &over);
@@ -416,6 +421,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let over = WireRequest {
@@ -429,6 +435,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let merged = merge_requests(&base, &over);
@@ -448,6 +455,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let over = WireRequest {
@@ -461,6 +469,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let merged = merge_requests(&base, &over);
@@ -487,6 +496,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let over = WireRequest {
@@ -503,6 +513,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let merged = merge_requests(&base, &over);
@@ -530,6 +541,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let over = WireRequest {
@@ -546,6 +558,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let merged = merge_requests(&base, &over);
@@ -572,6 +585,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let over = WireRequest {
@@ -585,6 +599,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let merged = merge_requests(&base, &over);
@@ -615,6 +630,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let resolved = resolve_template(request, &wire_dir).unwrap();
@@ -653,6 +669,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let resolved = resolve_template(request, &wire_dir).unwrap();
@@ -689,6 +706,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let result = resolve_template(request, &wire_dir);
@@ -735,6 +753,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let result = resolve_template(request, &wire_dir);
@@ -756,6 +775,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let dir = TempDir::new().unwrap();
@@ -850,6 +870,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let over = WireRequest {
@@ -863,6 +884,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let merged = merge_requests(&base, &over);
@@ -888,6 +910,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let over = WireRequest {
@@ -904,6 +927,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let merged = merge_requests(&base, &over);
@@ -930,6 +954,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let over = WireRequest {
@@ -943,6 +968,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let merged = merge_requests(&base, &over);
@@ -984,6 +1010,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         // Depth: request -> c (depth 0) -> b (depth 1) -> a (depth 2) = 3 levels, should succeed
@@ -1017,6 +1044,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let result = resolve_template(request, &wire_dir);
@@ -1053,6 +1081,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let result = resolve_template(request, &wire_dir);
@@ -1084,6 +1113,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let resolved = resolve_with_default(request, &wire_dir, Some("base-api")).unwrap();
@@ -1118,6 +1148,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         // default is base-api, but request explicitly extends admin-api
@@ -1143,6 +1174,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let resolved = resolve_with_default(request.clone(), &wire_dir, None).unwrap();
@@ -1177,6 +1209,7 @@ mod tests {
             ],
             response_schema: vec![("id".into(), "int".into())],
             chain: vec![],
+            snapshot: None,
         };
 
         let over = WireRequest {
@@ -1194,6 +1227,7 @@ mod tests {
             }],
             response_schema: vec![("name".into(), "string".into())],
             chain: vec![],
+            snapshot: None,
         };
 
         let merged = merge_requests(&base, &over);
@@ -1221,6 +1255,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let over = WireRequest {
@@ -1238,6 +1273,7 @@ mod tests {
             }],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let merged = merge_requests(&base, &over);
@@ -1263,6 +1299,7 @@ mod tests {
             }],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let over = WireRequest {
@@ -1276,6 +1313,7 @@ mod tests {
             tests: vec![],
             response_schema: vec![],
             chain: vec![],
+            snapshot: None,
         };
 
         let merged = merge_requests(&base, &over);

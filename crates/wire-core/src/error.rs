@@ -14,6 +14,9 @@ pub enum WireError {
     #[error("Variable not found: {0}")]
     VariableNotFound(String),
 
+    #[error("Parse error: {0}")]
+    Parse(String),
+
     #[error("{0}")]
     Other(String),
 }

@@ -304,6 +304,7 @@ mod tests {
                 tests: Vec::new(),
                 response_schema: Vec::new(),
                 chain: Vec::new(),
+                snapshot: None,
             },
         )
     }

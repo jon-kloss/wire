@@ -6,6 +6,7 @@ pub mod error;
 pub mod history;
 pub mod http;
 pub mod scan;
+pub mod snapshot;
 pub mod test;
 pub mod variables;
 
@@ -57,6 +58,7 @@ params:
             tests: Vec::new(),
             response_schema: Vec::new(),
             chain: Vec::new(),
+            snapshot: None,
         })
         .unwrap();
         let reparsed: WireRequest = serde_yaml::from_str(&serialized).unwrap();

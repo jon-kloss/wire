@@ -26,6 +26,17 @@ pub struct WireRequest {
     /// Chain steps for multi-request flows
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub chain: Vec<ChainStep>,
+    /// Snapshot configuration (ignore rules for golden file diffing)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<SnapshotConfig>,
+}
+
+/// Per-request snapshot configuration, parsed from the `snapshot` field in .wire.yaml.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SnapshotConfig {
+    /// Paths to ignore when diffing (e.g. "body.timestamp", "body.users[*].id")
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignore: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
