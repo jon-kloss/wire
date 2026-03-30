@@ -851,14 +851,14 @@ function App() {
     const numOps = ["less_than", "greater_than"];
 
     if (boolOps.includes(operator)) {
-      (a as Record<string, unknown>)[operator] = value !== "false";
+      (a as unknown as Record<string, unknown>)[operator] = value !== "false";
     } else if (numOps.includes(operator)) {
-      (a as Record<string, unknown>)[operator] = parseFloat(value) || 0;
+      (a as unknown as Record<string, unknown>)[operator] = parseFloat(value) || 0;
     } else if (operator === "equals" || operator === "not_equals") {
       const num = Number(value);
-      (a as Record<string, unknown>)[operator] = !isNaN(num) && value.trim() !== "" ? num : value;
+      (a as unknown as Record<string, unknown>)[operator] = !isNaN(num) && value.trim() !== "" ? num : value;
     } else {
-      (a as Record<string, unknown>)[operator] = value;
+      (a as unknown as Record<string, unknown>)[operator] = value;
     }
     return a;
   };
@@ -2065,7 +2065,7 @@ function App() {
                               const op = typeMap[typeHint] ?? (typeHint.startsWith("List<") ? "is_array" : "exists");
                               const a: Assertion = { field };
                               if (boolTypes.includes(op)) {
-                                (a as Record<string, unknown>)[op] = true;
+                                (a as unknown as Record<string, unknown>)[op] = true;
                               } else {
                                 a.exists = true;
                               }

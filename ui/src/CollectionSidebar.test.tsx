@@ -272,8 +272,11 @@ const makeCollection = (
     name,
     version: 1,
     active_env: null,
+    default_templates: [],
     requests,
     environments: [],
+    templates: [],
+    source_dir: null,
   },
   path,
 });
