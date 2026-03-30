@@ -4,12 +4,32 @@ A fast, local-first API client built with Tauri, Rust, and React.
 
 Wire stores requests as human-readable YAML files that live in your repo alongside your code. No accounts, no cloud sync, no bloat.
 
+## Built for AI-Assisted Development
+
+Wire is designed to work with [Claude Code](https://claude.ai/claude-code) and AI coding agents. While other API clients lock your data in GUIs and proprietary formats, Wire stores everything as YAML files and exposes every feature through a CLI — making it fully accessible to AI agents using standard file and shell tools.
+
+```bash
+wire install-claude-skill
+```
+
+One command installs a skill that teaches Claude Code how to use Wire. From that point on, Claude will automatically:
+
+- **Generate collections from your codebase** — scan your routes and create `.wire.yaml` files for every endpoint
+- **Write contract tests** — add declarative test assertions to verify response shapes, status codes, and timing
+- **Run tests in CI** — `wire test .wire/ -e ci` with exit codes for pass/fail
+- **Chain requests** — build multi-step auth flows where tokens pass between requests
+- **Detect endpoint drift** — compare your code against your collection to find missing or stale tests
+- **Manage environments and secrets** — set up dev/staging/prod configs with secret injection
+
+The skill is embedded in the Wire binary — no extra files or downloads. Works out of the box.
+
 ## Why Wire?
 
 - **Local-first** — your data stays on your machine, no login required
 - **Human-readable files** — `.wire.yaml` files are diffable in git and editable in any text editor
 - **Fast** — Tauri + Rust backend, not Electron
 - **CLI from day one** — same core library powers both the GUI and the `wire` CLI
+- **AI-native** — YAML files + CLI = fully accessible to AI coding agents without browser automation or proprietary APIs
 
 ### What Wire catches that other tests don't
 
@@ -338,31 +358,6 @@ wire history clear                     # clear history
 wire install-claude-skill               # install Claude Code integration
 wire uninstall-claude-skill            # remove Claude Code integration
 ```
-
-### Claude Code Integration
-
-Wire ships with a [Claude Code](https://claude.ai/claude-code) skill that teaches Claude how to use Wire for HTTP requests, API testing, chaining, and more. This is optional — install it only if you use Claude Code.
-
-```bash
-wire install-claude-skill
-```
-
-This copies Wire's skill file to `~/.claude/commands/wire.md`. Once installed, Claude Code will automatically use Wire whenever it needs to:
-
-- Make HTTP requests (instead of curl)
-- Set up API collections for a project
-- Test endpoints with assertions
-- Run multi-step auth flows
-- Scan codebases for endpoints
-- Manage environment variables and secrets
-
-The skill is embedded in the Wire binary — no extra files or downloads needed. To remove it:
-
-```bash
-wire uninstall-claude-skill
-```
-
-If you don't use Claude Code, simply don't run `wire install-claude-skill`. It has no effect on Wire's functionality.
 
 ### Tests
 
