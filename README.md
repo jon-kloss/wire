@@ -384,4 +384,4 @@ git config core.hooksPath .githooks
 
 ## License
 
-MIT
+AGPL-3.0 — see [LICENSE](LICENSE) for details.
