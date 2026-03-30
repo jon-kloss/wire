@@ -155,6 +155,28 @@ mod tests {
     }
 
     #[test]
+    fn null_field_removed() {
+        let a = json!({"value": null, "other": 1});
+        let b = json!({"other": 1});
+        let diffs = structural_diff(&a, &b);
+        assert_eq!(diffs.len(), 1);
+        assert_eq!(diffs[0].kind, DiffKind::Removed);
+        assert_eq!(diffs[0].old, Some(json!(null)));
+        assert_eq!(diffs[0].new, None);
+    }
+
+    #[test]
+    fn null_field_added() {
+        let a = json!({"other": 1});
+        let b = json!({"value": null, "other": 1});
+        let diffs = structural_diff(&a, &b);
+        assert_eq!(diffs.len(), 1);
+        assert_eq!(diffs[0].kind, DiffKind::Added);
+        assert_eq!(diffs[0].old, None);
+        assert_eq!(diffs[0].new, Some(json!(null)));
+    }
+
+    #[test]
     fn empty_objects_are_equal() {
         let a = json!({});
         let b = json!({});

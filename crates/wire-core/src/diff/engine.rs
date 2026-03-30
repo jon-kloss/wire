@@ -6,6 +6,10 @@ use super::{DiffEntry, DiffKind};
 ///
 /// Walks both trees recursively, reporting added, removed, and changed fields
 /// with human-readable paths (e.g. "users[0].name").
+///
+/// Arrays are compared positionally by index. Items are not matched by identity.
+/// If items shift positions (e.g. insert at index 0), all subsequent indices
+/// will report as Changed rather than a single Added entry.
 pub fn structural_diff(old: &Value, new: &Value) -> Vec<DiffEntry> {
     let mut diffs = Vec::new();
     diff_values(old, new, String::new(), &mut diffs);
