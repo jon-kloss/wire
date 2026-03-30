@@ -296,9 +296,12 @@ This installs `wire` globally. You can then use it from any directory.
 
 ```bash
 wire send <file> -d .wire -e dev      # send a request
+wire send <file> --snapshot -d .wire  # send and save response as snapshot
 wire list .wire                        # list collection contents
 wire test <path> -d .wire -e dev      # run test assertions
+wire test <path> --snapshot -d .wire  # test + diff against saved snapshot
 wire chain run <file> -d .wire        # execute a request chain
+wire snapshot update <file> -d .wire  # overwrite snapshot with current response
 wire generate <project_dir>           # generate collection from source code
 wire drift <project_dir> .wire        # detect endpoint drift
 wire drift <project_dir> .wire --fix  # auto-fix drift
