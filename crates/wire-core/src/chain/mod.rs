@@ -18,6 +18,13 @@ pub struct ChainStep {
     /// Variables to extract from the response: { var_name: "body.field" | "headers.name" | "status" }
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub extract: HashMap<String, String>,
+    /// If true, write extracted variables to the active environment file immediately
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub persist: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
 }
 
 /// Result of executing a single chain step.
@@ -65,6 +72,7 @@ pub async fn execute_chain(
     wire_dir: &Path,
     scope: &VariableScope,
     client: &HttpClient,
+    active_env_name: Option<&str>,
 ) -> ChainResult {
     let chain_start = Instant::now();
     let mut step_results = Vec::new();
@@ -191,6 +199,23 @@ pub async fn execute_chain(
         // Push extracted variables into scope for subsequent steps
         if !extracted.is_empty() {
             scope.push_layer(extracted.clone());
+        }
+
+        // Persist extracted variables to the active environment file if requested
+        if step.persist && !extracted.is_empty() {
+            if let Some(env_name) = active_env_name {
+                let env_path = wire_dir.join("envs").join(format!("{env_name}.yaml"));
+                if let Ok(content) = std::fs::read_to_string(&env_path) {
+                    if let Ok(mut env) =
+                        serde_yaml::from_str::<crate::collection::Environment>(&content)
+                    {
+                        for (k, v) in &extracted {
+                            env.variables.insert(k.clone(), v.clone());
+                        }
+                        let _ = crate::collection::save_environment(wire_dir, env_name, &env);
+                    }
+                }
+            }
         }
 
         step_results.push(build_result(extracted, true, None));
@@ -334,9 +359,11 @@ extract:
         let step = ChainStep {
             run: "test".to_string(),
             extract: HashMap::new(),
+            persist: false,
         };
         let yaml = serde_yaml::to_string(&step).unwrap();
         assert!(!yaml.contains("extract:"));
+        assert!(!yaml.contains("persist:"));
         assert!(yaml.contains("run:"));
     }
 
@@ -379,7 +406,7 @@ chain:
         let dir = tempfile::tempdir().unwrap();
         let wire_dir = setup_wire_dir(dir.path(), &[]);
 
-        let result = execute_chain(&[], &wire_dir, &scope, &client).await;
+        let result = execute_chain(&[], &wire_dir, &scope, &client, None).await;
         assert!(result.success);
         assert!(result.steps.is_empty());
         assert!(result.error.is_none());
@@ -408,9 +435,10 @@ chain:
                 m.insert("id".to_string(), "body.uuid".to_string());
                 m
             },
+            persist: false,
         }];
 
-        let result = execute_chain(&steps, &wire_dir, &scope, &client).await;
+        let result = execute_chain(&steps, &wire_dir, &scope, &client, None).await;
         assert!(result.success);
         assert_eq!(result.steps.len(), 1);
         assert_eq!(result.steps[0].status, 200);
@@ -459,6 +487,7 @@ chain:
                     m.insert("token".to_string(), "body.token".to_string());
                     m
                 },
+                persist: false,
             },
             ChainStep {
                 run: "users/profile".to_string(),
@@ -467,10 +496,11 @@ chain:
                     m.insert("user_name".to_string(), "body.name".to_string());
                     m
                 },
+                persist: false,
             },
         ];
 
-        let result = execute_chain(&steps, &wire_dir, &scope, &client).await;
+        let result = execute_chain(&steps, &wire_dir, &scope, &client, None).await;
         assert!(result.success);
         assert_eq!(result.steps.len(), 2);
         // Step 1 extracted token
@@ -520,18 +550,21 @@ chain:
             ChainStep {
                 run: "step-ok".to_string(),
                 extract: HashMap::new(),
+                persist: false,
             },
             ChainStep {
                 run: "step-fail".to_string(),
                 extract: HashMap::new(),
+                persist: false,
             },
             ChainStep {
                 run: "step-never".to_string(),
                 extract: HashMap::new(),
+                persist: false,
             },
         ];
 
-        let result = execute_chain(&steps, &wire_dir, &scope, &client).await;
+        let result = execute_chain(&steps, &wire_dir, &scope, &client, None).await;
         assert!(!result.success);
         assert_eq!(result.steps.len(), 2); // step 3 never ran
         assert!(result.steps[0].passed);
@@ -570,16 +603,18 @@ chain:
         let steps_299 = vec![ChainStep {
             run: "step-299".to_string(),
             extract: HashMap::new(),
+            persist: false,
         }];
-        let result = execute_chain(&steps_299, &wire_dir, &scope, &client).await;
+        let result = execute_chain(&steps_299, &wire_dir, &scope, &client, None).await;
         assert!(result.success);
 
         // 300 should fail
         let steps_300 = vec![ChainStep {
             run: "step-300".to_string(),
             extract: HashMap::new(),
+            persist: false,
         }];
-        let result = execute_chain(&steps_300, &wire_dir, &scope, &client).await;
+        let result = execute_chain(&steps_300, &wire_dir, &scope, &client, None).await;
         assert!(!result.success);
         assert!(result.error.unwrap().contains("HTTP 300"));
     }
@@ -608,9 +643,10 @@ chain:
                 m.insert("missing".to_string(), "body.nonexistent.field".to_string());
                 m
             },
+            persist: false,
         }];
 
-        let result = execute_chain(&steps, &wire_dir, &scope, &client).await;
+        let result = execute_chain(&steps, &wire_dir, &scope, &client, None).await;
         assert!(!result.success);
         assert!(result.error.unwrap().contains("extraction failed"));
     }
@@ -625,9 +661,10 @@ chain:
         let steps = vec![ChainStep {
             run: "nonexistent".to_string(),
             extract: HashMap::new(),
+            persist: false,
         }];
 
-        let result = execute_chain(&steps, &wire_dir, &scope, &client).await;
+        let result = execute_chain(&steps, &wire_dir, &scope, &client, None).await;
         assert!(!result.success);
         assert!(result.error.unwrap().contains("failed to load"));
     }
@@ -656,12 +693,111 @@ chain:
                 m.insert("secret".to_string(), "body.secret".to_string());
                 m
             },
+            persist: false,
         }];
 
-        let result = execute_chain(&steps, &wire_dir, &scope, &client).await;
+        let result = execute_chain(&steps, &wire_dir, &scope, &client, None).await;
         assert!(result.success);
 
         // Caller's scope should NOT have the extracted variable
         assert_eq!(scope.resolve("secret"), None);
+    }
+
+    #[tokio::test]
+    async fn execute_chain_persist_writes_to_env_file() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/login"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"token": "persisted-jwt"})),
+            )
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let wire_dir = setup_wire_dir(dir.path(), &[("auth/login", "GET", "/api/login")]);
+
+        // Create an env file
+        let envs_dir = wire_dir.join("envs");
+        std::fs::create_dir_all(&envs_dir).unwrap();
+        std::fs::write(
+            envs_dir.join("dev.yaml"),
+            "name: Development\nvariables:\n  base_url: placeholder\n",
+        )
+        .unwrap();
+
+        let mut scope = VariableScope::new();
+        let mut vars = HashMap::new();
+        vars.insert("base_url".to_string(), server.uri());
+        scope.push_layer(vars);
+        let client = HttpClient::new().unwrap();
+
+        let steps = vec![ChainStep {
+            run: "auth/login".to_string(),
+            extract: {
+                let mut m = HashMap::new();
+                m.insert("token".to_string(), "body.token".to_string());
+                m
+            },
+            persist: true,
+        }];
+
+        let result = execute_chain(&steps, &wire_dir, &scope, &client, Some("dev")).await;
+        assert!(result.success);
+
+        // Verify the env file was updated with the persisted variable
+        let env_content = std::fs::read_to_string(envs_dir.join("dev.yaml")).unwrap();
+        let env: crate::collection::Environment = serde_yaml::from_str(&env_content).unwrap();
+        assert_eq!(env.variables.get("token").unwrap(), "persisted-jwt");
+        // Original variable should still be there
+        assert!(env.variables.contains_key("base_url"));
+    }
+
+    #[tokio::test]
+    async fn execute_chain_persist_false_does_not_write() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/data"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"secret": "should-not-persist"})),
+            )
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let wire_dir = setup_wire_dir(dir.path(), &[("data", "GET", "/api/data")]);
+
+        let envs_dir = wire_dir.join("envs");
+        std::fs::create_dir_all(&envs_dir).unwrap();
+        std::fs::write(
+            envs_dir.join("dev.yaml"),
+            "name: Development\nvariables:\n  base_url: placeholder\n",
+        )
+        .unwrap();
+
+        let scope = scope_with_base_url(&server.uri());
+        let client = HttpClient::new().unwrap();
+
+        let steps = vec![ChainStep {
+            run: "data".to_string(),
+            extract: {
+                let mut m = HashMap::new();
+                m.insert("secret".to_string(), "body.secret".to_string());
+                m
+            },
+            persist: false,
+        }];
+
+        let result = execute_chain(&steps, &wire_dir, &scope, &client, Some("dev")).await;
+        assert!(result.success);
+
+        // Env file should NOT have the secret
+        let env_content = std::fs::read_to_string(envs_dir.join("dev.yaml")).unwrap();
+        let env: crate::collection::Environment = serde_yaml::from_str(&env_content).unwrap();
+        assert!(!env.variables.contains_key("secret"));
     }
 }

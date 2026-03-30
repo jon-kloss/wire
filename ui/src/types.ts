@@ -60,6 +60,7 @@ export interface WireRequest {
 export interface ChainStepDef {
   run: string;
   extract?: Record<string, string>;
+  persist?: boolean;
 }
 
 /** A history entry from the Rust backend */

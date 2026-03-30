@@ -4,7 +4,7 @@ mod request;
 pub mod template;
 
 pub use crate::test::Assertion;
-pub use env::Environment;
+pub use env::{save_environment, Environment};
 pub use loader::{
     create_collection, load_collection, load_request, load_request_resolved,
     load_request_resolved_with_default, rename_collection, LoadedCollection,

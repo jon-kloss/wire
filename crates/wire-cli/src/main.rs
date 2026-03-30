@@ -1329,6 +1329,7 @@ async fn cmd_chain_run(file: &str, env_name: Option<&str>, wire_dir: &str) -> i3
 
     // Build variable scope from environment
     let mut scope = VariableScope::new();
+    let mut resolved_env_name: Option<String> = None;
     if wire_path.is_dir() {
         if let Ok(collection) = load_collection(wire_path) {
             let active_env = env_name
@@ -1338,6 +1339,7 @@ async fn cmd_chain_run(file: &str, env_name: Option<&str>, wire_dir: &str) -> i3
             if let Some(env_key) = &active_env {
                 if let Some(environment) = collection.environments.get(env_key) {
                     scope.push_layer(environment.variables.clone());
+                    resolved_env_name = Some(env_key.clone());
                 } else {
                     eprintln!(
                         "{}: environment '{}' not found",
@@ -1383,7 +1385,14 @@ async fn cmd_chain_run(file: &str, env_name: Option<&str>, wire_dir: &str) -> i3
     }
     println!();
 
-    let result = chain::execute_chain(&request.chain, wire_path, &scope, &client).await;
+    let result = chain::execute_chain(
+        &request.chain,
+        wire_path,
+        &scope,
+        &client,
+        resolved_env_name.as_deref(),
+    )
+    .await;
 
     // Print step results
     println!("{}", "Results:".dimmed());

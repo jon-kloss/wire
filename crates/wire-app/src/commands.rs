@@ -621,20 +621,27 @@ pub async fn run_chain(
         .clone()
         .ok_or_else(|| "No collection open".to_string())?;
 
+    let mut resolved_env_name: Option<String> = None;
     let collection_guard = state.collection.lock().await;
     if let Some(ref collection) = *collection_guard {
         let active_env = env.or_else(|| collection.metadata.active_env.clone());
         if let Some(env_key) = active_env {
             if let Some(environment) = collection.environments.get(&env_key) {
                 scope.push_layer(environment.variables.clone());
+                resolved_env_name = Some(env_key.clone());
             }
         }
     }
     drop(collection_guard);
 
-    let result =
-        wire_core::chain::execute_chain(&request.chain, &wire_dir, &scope, &state.http_client)
-            .await;
+    let result = wire_core::chain::execute_chain(
+        &request.chain,
+        &wire_dir,
+        &scope,
+        &state.http_client,
+        resolved_env_name.as_deref(),
+    )
+    .await;
 
     Ok(result)
 }
