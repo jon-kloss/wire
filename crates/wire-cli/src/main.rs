@@ -1227,6 +1227,7 @@ fn cmd_generate(project_dir: &str, output: Option<&str>) -> i32 {
         wire_core::scan::types::Framework::Express => "Express",
         wire_core::scan::types::Framework::NextJs => "Next.js",
         wire_core::scan::types::Framework::SpringBoot => "Spring Boot",
+        wire_core::scan::types::Framework::FastApi => "FastAPI",
         wire_core::scan::types::Framework::Unknown => "Unknown",
     };
 

@@ -21,6 +21,9 @@ pub fn detect_framework(project_dir: &Path) -> Framework {
     if has_spring_boot_dependency(project_dir) {
         return Framework::SpringBoot;
     }
+    if has_fastapi_dependency(project_dir) {
+        return Framework::FastApi;
+    }
     Framework::Unknown
 }
 
@@ -81,6 +84,74 @@ fn has_spring_boot_dependency(dir: &Path) -> bool {
         }
     }
 
+    false
+}
+
+/// Check if any Python file in the project imports FastAPI.
+fn has_fastapi_dependency(dir: &Path) -> bool {
+    // Check requirements.txt or pyproject.toml for fastapi
+    let req_path = dir.join("requirements.txt");
+    if req_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&req_path) {
+            if content.contains("fastapi") {
+                return true;
+            }
+        }
+    }
+
+    let pyproject_path = dir.join("pyproject.toml");
+    if pyproject_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&pyproject_path) {
+            if content.contains("fastapi") {
+                return true;
+            }
+        }
+    }
+
+    // Fallback: scan .py files at top level for fastapi imports
+    scan_for_python_import(dir, "fastapi", 2)
+}
+
+/// Scan Python files for a specific import, up to max_depth levels.
+fn scan_for_python_import(dir: &Path, module: &str, max_depth: u32) -> bool {
+    if max_depth == 0 {
+        return false;
+    }
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return false,
+    };
+    let import_from = format!("from {module} import");
+    let import_direct = format!("import {module}");
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        if path.is_dir() {
+            if matches!(
+                name.as_ref(),
+                "node_modules"
+                    | ".git"
+                    | "__pycache__"
+                    | ".venv"
+                    | "venv"
+                    | ".tox"
+                    | "dist"
+                    | "build"
+                    | ".wire"
+            ) {
+                continue;
+            }
+            if scan_for_python_import(&path, module, max_depth - 1) {
+                return true;
+            }
+        } else if path.extension().is_some_and(|e| e == "py") {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if content.contains(&import_from) || content.contains(&import_direct) {
+                    return true;
+                }
+            }
+        }
+    }
     false
 }
 
@@ -316,6 +387,57 @@ mod tests {
         let deep = dir.path().join("a/b/c/d");
         fs::create_dir_all(&deep).unwrap();
         fs::write(deep.join("Deep.csproj"), "<Project></Project>").unwrap();
+
+        assert_eq!(detect_framework(dir.path()), Framework::Unknown);
+    }
+
+    #[test]
+    fn detect_fastapi_from_requirements_txt() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("requirements.txt"),
+            "fastapi==0.104.0\nuvicorn==0.24.0\n",
+        )
+        .unwrap();
+
+        assert_eq!(detect_framework(dir.path()), Framework::FastApi);
+    }
+
+    #[test]
+    fn detect_fastapi_from_pyproject_toml() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("pyproject.toml"),
+            r#"[project]
+name = "myapi"
+dependencies = ["fastapi>=0.100", "uvicorn"]
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(detect_framework(dir.path()), Framework::FastApi);
+    }
+
+    #[test]
+    fn detect_fastapi_from_python_import() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("main.py"),
+            "from fastapi import FastAPI\n\napp = FastAPI()\n",
+        )
+        .unwrap();
+
+        assert_eq!(detect_framework(dir.path()), Framework::FastApi);
+    }
+
+    #[test]
+    fn non_fastapi_python_returns_unknown() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("requirements.txt"),
+            "flask==3.0.0\nrequests==2.31.0\n",
+        )
+        .unwrap();
 
         assert_eq!(detect_framework(dir.path()), Framework::Unknown);
     }

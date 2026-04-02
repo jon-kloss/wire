@@ -25,7 +25,7 @@ pub fn discover_environments(
 ) -> Vec<DiscoveredEnvironment> {
     match framework {
         Framework::AspNet => discover_aspnet_envs(project_dir),
-        Framework::Express | Framework::NextJs | Framework::SpringBoot => {
+        Framework::Express | Framework::NextJs | Framework::SpringBoot | Framework::FastApi => {
             discover_express_envs(project_dir)
         }
         Framework::Unknown => {

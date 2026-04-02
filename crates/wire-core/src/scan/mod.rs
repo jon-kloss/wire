@@ -2,6 +2,7 @@ mod aspnet;
 mod detect;
 pub mod envdiscover;
 mod express;
+mod fastapi;
 mod nextjs;
 mod springboot;
 pub mod types;
@@ -255,6 +256,7 @@ pub fn scan_project(project_dir: &Path) -> Result<ScanResult, WireError> {
         Framework::Express => express::scan_express(project_dir),
         Framework::NextJs => nextjs::scan_nextjs(project_dir),
         Framework::SpringBoot => springboot::scan_springboot(project_dir),
+        Framework::FastApi => fastapi::scan_fastapi(project_dir),
         Framework::Unknown => {
             // Try all parsers when framework is unknown
             let (mut endpoints, mut files) = aspnet::scan_aspnet(project_dir);
@@ -267,6 +269,9 @@ pub fn scan_project(project_dir: &Path) -> Result<ScanResult, WireError> {
             let (spring_endpoints, spring_files) = springboot::scan_springboot(project_dir);
             endpoints.extend(spring_endpoints);
             files += spring_files;
+            let (fastapi_endpoints, fastapi_files) = fastapi::scan_fastapi(project_dir);
+            endpoints.extend(fastapi_endpoints);
+            files += fastapi_files;
             (endpoints, files)
         }
     };

@@ -64,7 +64,7 @@ Wire isn't a replacement for unit or integration tests — it fills the gap betw
 - Save requests as `.wire.yaml` files — into a collection or standalone
 - Multiple collections displayed as expandable accordions with color-coded HTTP method badges
 - Collections dropdown menu for creating, importing, and managing collections
-- **Generate from Codebase** — auto-discover HTTP endpoints from ASP.NET, Express/Node, Next.js, and Spring Boot projects
+- **Generate from Codebase** — auto-discover HTTP endpoints from ASP.NET, Express/Node, Next.js, Spring Boot, and FastAPI projects
 - Environment variables with `{{variable}}` interpolation and scoping (Global > Environment > Collection > Request)
 - Environment switching (dev/staging/prod)
 - **Secret injection** — reference secrets from env vars, `.env` files, AWS Secrets Manager, or HashiCorp Vault without storing plaintext
@@ -269,8 +269,9 @@ Supports:
 - **Express/Node** — `router.get()`, `app.post()`, chained routes
 - **Next.js** — App Router (`export const GET`) and Pages Router (`req.method`) API routes
 - **Spring Boot** — `@GetMapping`, `@PostMapping`, `@RequestMapping` annotations (Java and Kotlin)
+- **FastAPI** — `@app.get()`, `@router.post()` decorators with Pydantic body detection (Python)
 
-Discovered endpoints are grouped into subfolders by controller name (ASP.NET/Spring Boot) or router filename (Express/Next.js).
+Discovered endpoints are grouped into subfolders by controller name (ASP.NET/Spring Boot) or router filename (Express/Next.js/FastAPI).
 
 ## Declarative Tests
 
