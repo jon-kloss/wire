@@ -110,6 +110,20 @@ enum Commands {
         #[command(subcommand)]
         action: SnapshotAction,
     },
+    /// Detect breaking API contract changes against a saved snapshot
+    Breaking {
+        /// Path to .wire collection directory
+        #[arg(short = 'd', long, default_value = ".wire")]
+        wire_dir: String,
+
+        /// Save current collection state as the baseline snapshot
+        #[arg(long)]
+        save: bool,
+
+        /// Output format: text or json
+        #[arg(short, long, default_value = "text")]
+        output: String,
+    },
     /// Install Wire's Claude Code skill to ~/.claude/commands/
     InstallClaudeSkill,
     /// Remove Wire's Claude Code skill from ~/.claude/commands/
@@ -220,6 +234,14 @@ async fn main() {
                 eprintln!("{}: {e}", "Error".red().bold());
                 std::process::exit(1);
             }
+        }
+        Commands::Breaking {
+            wire_dir,
+            save,
+            output,
+        } => {
+            let exit_code = cmd_breaking(&wire_dir, save, &output);
+            std::process::exit(exit_code);
         }
         Commands::Drift {
             project_dir,
@@ -735,6 +757,149 @@ fn cmd_list(dir: &str) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn cmd_breaking(wire_dir: &str, save: bool, output: &str) -> i32 {
+    let wire_path = Path::new(wire_dir);
+    if !wire_path.is_dir() {
+        eprintln!(
+            "{}: collection directory not found: {wire_dir}",
+            "Error".red().bold()
+        );
+        return 1;
+    }
+
+    if save {
+        // Save current state as baseline snapshot
+        match wire_core::breaking::save_snapshot(wire_path) {
+            Ok((snapshot, path)) => {
+                println!(
+                    "{} contract snapshot ({} endpoints)",
+                    "Saved".green().bold(),
+                    snapshot.endpoints.len()
+                );
+                println!("  → {}", path.display());
+                return 0;
+            }
+            Err(e) => {
+                eprintln!("{}: {e}", "Error".red().bold());
+                return 1;
+            }
+        }
+    }
+
+    // Compare current state against saved snapshot
+    let report = match wire_core::breaking::compare(wire_path) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("{}: {e}", "Error".red().bold());
+            return 1;
+        }
+    };
+
+    if output == "json" {
+        match serde_json::to_string_pretty(&report) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                eprintln!("{}: {e}", "Error".red().bold());
+                return 1;
+            }
+        }
+    } else {
+        print_breaking_report(&report);
+    }
+
+    if report.has_breaking_changes() {
+        1
+    } else {
+        0
+    }
+}
+
+fn print_breaking_report(report: &wire_core::breaking::BreakingReport) {
+    use wire_core::breaking::Severity;
+
+    if report.changes.is_empty() {
+        println!(
+            "\n{}: no contract changes detected\n",
+            "Result: PASS".green().bold()
+        );
+        return;
+    }
+
+    println!();
+
+    // Group by severity
+    if report.breaking_count > 0 {
+        println!("{} ({})", "BREAKING".red().bold(), report.breaking_count);
+        for change in report
+            .changes
+            .iter()
+            .filter(|c| c.severity == Severity::Breaking)
+        {
+            println!(
+                "  {} {} {} — {}",
+                "✗".red(),
+                change.method,
+                change.route,
+                change.description
+            );
+        }
+        println!();
+    }
+
+    if report.warning_count > 0 {
+        println!("{} ({})", "WARNING".yellow().bold(), report.warning_count);
+        for change in report
+            .changes
+            .iter()
+            .filter(|c| c.severity == Severity::Warning)
+        {
+            println!(
+                "  {} {} {} — {}",
+                "⚠".yellow(),
+                change.method,
+                change.route,
+                change.description
+            );
+        }
+        println!();
+    }
+
+    if report.info_count > 0 {
+        println!("{} ({})", "INFO".cyan().bold(), report.info_count);
+        for change in report
+            .changes
+            .iter()
+            .filter(|c| c.severity == Severity::Info)
+        {
+            println!(
+                "  {} {} {} — {}",
+                "+".cyan(),
+                change.method,
+                change.route,
+                change.description
+            );
+        }
+        println!();
+    }
+
+    if report.has_breaking_changes() {
+        println!(
+            "{} ({} breaking change{})\n",
+            "Result: FAIL".red().bold(),
+            report.breaking_count,
+            if report.breaking_count == 1 { "" } else { "s" }
+        );
+    } else {
+        println!(
+            "{}: no breaking changes ({} warning{}, {} info)\n",
+            "Result: PASS".green().bold(),
+            report.warning_count,
+            if report.warning_count == 1 { "" } else { "s" },
+            report.info_count
+        );
+    }
 }
 
 fn cmd_drift(project_dir: &str, wire_dir: &str, fix: bool, output: &str) -> i32 {

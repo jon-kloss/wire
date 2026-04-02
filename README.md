@@ -273,6 +273,21 @@ Supports:
 
 Discovered endpoints are grouped into subfolders by controller name (ASP.NET/Spring Boot) or router filename (Express/Next.js/FastAPI).
 
+## Breaking Change Detection
+
+Detect breaking API contract changes by comparing your current collection against a saved baseline:
+
+```bash
+wire breaking --save                    # save current state as baseline
+wire breaking                           # compare current state against baseline
+wire breaking --json                    # structured JSON output for CI
+```
+
+Changes are classified by severity:
+- **BREAKING** (exit code 1) — removed endpoint, removed response field, type change, body removed
+- **WARNING** (exit code 0) — new required param, new required header, body added
+- **INFO** (exit code 0) — new endpoint, new response field, new optional param
+
 ## Declarative Tests
 
 Add test assertions to any request:
@@ -360,6 +375,8 @@ wire snapshot update <file> -d .wire  # overwrite snapshot with current response
 wire generate <project_dir>           # generate collection from source code
 wire drift <project_dir>              # detect endpoint drift
 wire drift <project_dir> --fix        # auto-fix drift
+wire breaking --save                  # save contract baseline
+wire breaking                         # detect breaking changes
 wire env check -d .wire               # validate secret references
 wire template list .wire              # list available templates
 wire history                           # view request history
