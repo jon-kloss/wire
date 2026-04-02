@@ -18,6 +18,9 @@ pub fn detect_framework(project_dir: &Path) -> Framework {
     if has_nextjs_dependency(project_dir) {
         return Framework::NextJs;
     }
+    if has_spring_boot_dependency(project_dir) {
+        return Framework::SpringBoot;
+    }
     Framework::Unknown
 }
 
@@ -52,6 +55,33 @@ fn has_nextjs_dependency(dir: &Path) -> bool {
         Err(_) => return false,
     };
     content.contains("\"next\"")
+}
+
+/// Check if pom.xml or build.gradle(.kts) contains a Spring Boot dependency.
+fn has_spring_boot_dependency(dir: &Path) -> bool {
+    // Check pom.xml for spring-boot-starter-web
+    let pom_path = dir.join("pom.xml");
+    if pom_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&pom_path) {
+            if content.contains("spring-boot-starter-web") {
+                return true;
+            }
+        }
+    }
+
+    // Check build.gradle or build.gradle.kts for spring-boot
+    for name in &["build.gradle", "build.gradle.kts"] {
+        let gradle_path = dir.join(name);
+        if gradle_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&gradle_path) {
+                if content.contains("spring-boot") {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
 
 /// Recursively scan for files with the given extension, up to max_depth levels.
@@ -203,6 +233,78 @@ mod tests {
         fs::create_dir_all(&nm).unwrap();
         // .csproj inside node_modules should not be detected
         fs::write(nm.join("fake.csproj"), "<Project></Project>").unwrap();
+
+        assert_eq!(detect_framework(dir.path()), Framework::Unknown);
+    }
+
+    #[test]
+    fn detect_springboot_from_pom_xml() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("pom.xml"),
+            r#"<project>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-starter-web</artifactId>
+                    </dependency>
+                </dependencies>
+            </project>"#,
+        )
+        .unwrap();
+
+        assert_eq!(detect_framework(dir.path()), Framework::SpringBoot);
+    }
+
+    #[test]
+    fn detect_springboot_from_build_gradle() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("build.gradle"),
+            r#"plugins {
+                id 'org.springframework.boot' version '3.2.0'
+            }
+            dependencies {
+                implementation 'org.springframework.boot:spring-boot-starter-web'
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(detect_framework(dir.path()), Framework::SpringBoot);
+    }
+
+    #[test]
+    fn detect_springboot_from_build_gradle_kts() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("build.gradle.kts"),
+            r#"plugins {
+                id("org.springframework.boot") version "3.2.0"
+            }
+            dependencies {
+                implementation("org.springframework.boot:spring-boot-starter-web")
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(detect_framework(dir.path()), Framework::SpringBoot);
+    }
+
+    #[test]
+    fn non_spring_pom_returns_unknown() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("pom.xml"),
+            r#"<project>
+                <dependencies>
+                    <dependency>
+                        <groupId>junit</groupId>
+                        <artifactId>junit</artifactId>
+                    </dependency>
+                </dependencies>
+            </project>"#,
+        )
+        .unwrap();
 
         assert_eq!(detect_framework(dir.path()), Framework::Unknown);
     }

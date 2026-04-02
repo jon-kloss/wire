@@ -29,6 +29,7 @@ pub enum Framework {
     AspNet,
     Express,
     NextJs,
+    SpringBoot,
     Unknown,
 }
 
