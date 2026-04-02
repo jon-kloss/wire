@@ -6,6 +6,8 @@ You have access to `wire`, a CLI tool for HTTP requests, API testing, request ch
 
 **These are the ONLY valid Wire commands. Do NOT invent commands like `wire validate`, `wire check`, `wire sync`, or `wire spec`.**
 
+> **Note:** `wire breaking` is also available — see the Breaking Change Detection section below.
+
 ```bash
 wire send <file> -d .wire -e <env>           # send a request
 wire send <file> --snapshot -d .wire         # send and save response as golden file
@@ -24,6 +26,9 @@ wire list .wire                               # list collection
 wire template list .wire                      # list templates
 wire history -d .wire                         # view history
 wire history clear                            # clear all history
+wire breaking --save -d .wire                 # save contract baseline snapshot
+wire breaking -d .wire                        # detect breaking changes vs baseline
+wire breaking -d .wire -o json               # JSON output for CI
 ```
 
 **CRITICAL: File path resolution for `send` and `test` commands.**
@@ -304,7 +309,62 @@ tests:
 
 Exit code 0 = snapshot matches, exit code 1 = differences found (useful for CI).
 
-### 6. ALWAYS Use Secret References for Sensitive Values
+### 6. ALWAYS Use Breaking Change Detection When Modifying APIs
+
+When you modify, refactor, or remove any API endpoint in a project that has a `.wire/` collection, **always check for breaking changes** before committing.
+
+**When to save a baseline:**
+- After generating a new collection (`wire generate`)
+- After confirming all tests pass on a stable API
+- Before starting any refactoring work on endpoints
+- At the start of a sprint or release cycle
+
+**When to check for breaking changes:**
+- After modifying any endpoint's response shape, parameters, or headers
+- After renaming or removing fields from response models
+- After adding required parameters to existing endpoints
+- After removing endpoints
+- Before creating a PR that touches API code
+
+**How to use:**
+```bash
+# 1. Save baseline when the API is known-good
+wire breaking --save -d .wire
+
+# 2. After making changes, check what broke
+wire breaking -d .wire
+```
+
+**Example output:**
+```
+BREAKING (2):
+  ✗ GET /api/users — response field 'email' removed
+  ✗ POST /api/orders — endpoint removed
+
+WARNING (1):
+  ⚠ GET /api/items — new required param 'tenant_id'
+
+INFO (3):
+  + POST /api/users/invite — new endpoint added
+  + GET /api/users — new response field 'avatar_url'
+  + GET /api/items — param 'sort' removed
+
+Result: FAIL (2 breaking changes)
+```
+
+**Severity classification:**
+
+| Severity | Exit Code | What triggers it |
+|----------|-----------|------------------|
+| BREAKING | 1 | Endpoint removed, response field removed, field type changed, body removed, body type changed |
+| WARNING | 0 | New required param added, new required header added, body added to endpoint |
+| INFO | 0 | New endpoint, new response field, param no longer required, header no longer required |
+
+**CI integration:** Use `wire breaking -d .wire -o json` for structured output. Exit code 1 = breaking changes found (fail the build).
+
+**The snapshot file** is saved at `.wire/contract-snapshot.json`. It captures the full structural definition of every endpoint: method, URL, params, headers, body schema, and response schema. Commit this file to version control so the baseline is shared across the team.
+
+### 7. ALWAYS Use Secret References for Sensitive Values
 
 Never put real tokens, passwords, or API keys in environment files:
 
@@ -371,6 +431,8 @@ Follow this every time:
 8. **Save snapshots** for stable endpoints with `wire send <file> --snapshot -d .wire`
 9. **Add ignore rules** for dynamic fields (timestamps, IDs) in the request's `snapshot` section
 10. **Run `wire drift`** if source scanning is available
+11. **Run `wire breaking`** to check for breaking changes against the baseline
+12. **Update the baseline** with `wire breaking --save` after intentional API changes are verified
 
 ## Important Notes
 
