@@ -25,7 +25,7 @@ pub fn discover_environments(
 ) -> Vec<DiscoveredEnvironment> {
     match framework {
         Framework::AspNet => discover_aspnet_envs(project_dir),
-        Framework::Express => discover_express_envs(project_dir),
+        Framework::Express | Framework::NextJs => discover_express_envs(project_dir),
         Framework::Unknown => {
             // Combine results from all scanners (matches scan_project behavior)
             let mut envs = discover_aspnet_envs(project_dir);

@@ -28,6 +28,7 @@ pub struct DiscoveredEndpoint {
 pub enum Framework {
     AspNet,
     Express,
+    NextJs,
     Unknown,
 }
 

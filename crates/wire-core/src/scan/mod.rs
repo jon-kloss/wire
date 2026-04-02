@@ -2,6 +2,7 @@ mod aspnet;
 mod detect;
 pub mod envdiscover;
 mod express;
+mod nextjs;
 pub mod types;
 
 use crate::collection::{
@@ -251,12 +252,16 @@ pub fn scan_project(project_dir: &Path) -> Result<ScanResult, WireError> {
     let (endpoints, files_scanned) = match framework {
         Framework::AspNet => aspnet::scan_aspnet(project_dir),
         Framework::Express => express::scan_express(project_dir),
+        Framework::NextJs => nextjs::scan_nextjs(project_dir),
         Framework::Unknown => {
             // Try all parsers when framework is unknown
             let (mut endpoints, mut files) = aspnet::scan_aspnet(project_dir);
             let (express_endpoints, express_files) = express::scan_express(project_dir);
             endpoints.extend(express_endpoints);
             files += express_files;
+            let (nextjs_endpoints, nextjs_files) = nextjs::scan_nextjs(project_dir);
+            endpoints.extend(nextjs_endpoints);
+            files += nextjs_files;
             (endpoints, files)
         }
     };

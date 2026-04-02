@@ -6,6 +6,7 @@ use std::path::Path;
 /// Detection rules:
 /// - `.csproj` file found anywhere → ASP.NET
 /// - `package.json` with `express` dependency → Express
+/// - `package.json` with `next` dependency → Next.js
 /// - Neither → Unknown
 pub fn detect_framework(project_dir: &Path) -> Framework {
     if has_csproj(project_dir) {
@@ -13,6 +14,9 @@ pub fn detect_framework(project_dir: &Path) -> Framework {
     }
     if has_express_dependency(project_dir) {
         return Framework::Express;
+    }
+    if has_nextjs_dependency(project_dir) {
+        return Framework::NextJs;
     }
     Framework::Unknown
 }
@@ -35,6 +39,19 @@ fn has_express_dependency(dir: &Path) -> bool {
     // Check both "dependencies" and "devDependencies" for "express"
     // Simple string check — sufficient for detection without pulling in a JSON parser
     content.contains("\"express\"")
+}
+
+/// Check if package.json exists and contains "next" as a dependency.
+fn has_nextjs_dependency(dir: &Path) -> bool {
+    let pkg_path = dir.join("package.json");
+    if !pkg_path.exists() {
+        return false;
+    }
+    let content = match std::fs::read_to_string(&pkg_path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    content.contains("\"next\"")
 }
 
 /// Recursively scan for files with the given extension, up to max_depth levels.
@@ -117,6 +134,30 @@ mod tests {
         fs::write(
             dir.path().join("package.json"),
             r#"{"devDependencies": {"express": "^4.18.0", "jest": "^29.0.0"}}"#,
+        )
+        .unwrap();
+
+        assert_eq!(detect_framework(dir.path()), Framework::Express);
+    }
+
+    #[test]
+    fn detect_nextjs_from_package_json() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("package.json"),
+            r#"{"dependencies": {"next": "14.0.0", "react": "18.0.0"}}"#,
+        )
+        .unwrap();
+
+        assert_eq!(detect_framework(dir.path()), Framework::NextJs);
+    }
+
+    #[test]
+    fn express_takes_priority_over_nextjs() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("package.json"),
+            r#"{"dependencies": {"express": "^4.18.0", "next": "14.0.0"}}"#,
         )
         .unwrap();
 

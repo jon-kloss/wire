@@ -1225,6 +1225,7 @@ fn cmd_generate(project_dir: &str, output: Option<&str>) -> i32 {
     let framework = match scan.framework {
         wire_core::scan::types::Framework::AspNet => "ASP.NET",
         wire_core::scan::types::Framework::Express => "Express",
+        wire_core::scan::types::Framework::NextJs => "Next.js",
         wire_core::scan::types::Framework::Unknown => "Unknown",
     };
 
