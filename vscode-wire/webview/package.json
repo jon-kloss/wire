@@ -1,0 +1,17 @@
+{
+  "name": "wire-webview",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "cd .. && node esbuild.config.mjs",
+    "watch": "cd .. && node esbuild.config.mjs --watch"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0"
+  }
+}

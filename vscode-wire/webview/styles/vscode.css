@@ -1,0 +1,147 @@
+/* Wire VS Code Extension — Theme Integration
+ * Uses VS Code CSS variables for native look & feel.
+ * See: https://code.visualstudio.com/api/references/theme-color
+ */
+
+:root {
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background-color: var(--vscode-editor-background);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  padding: 8px;
+}
+
+.wire-app {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 100%;
+}
+
+/* Buttons */
+button {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  padding: 6px 14px;
+  cursor: pointer;
+  border-radius: 2px;
+  font-size: var(--vscode-font-size);
+}
+
+button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+button.secondary {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+}
+
+button.secondary:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+/* Inputs */
+input,
+select,
+textarea {
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border);
+  padding: 4px 8px;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  border-radius: 2px;
+  width: 100%;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  border-color: var(--vscode-focusBorder);
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--vscode-widget-border);
+}
+
+th {
+  color: var(--vscode-descriptionForeground);
+  font-weight: 600;
+}
+
+/* Status badges */
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 2px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.status-badge.success {
+  background: var(--vscode-testing-iconPassed);
+  color: var(--vscode-editor-background);
+}
+
+.status-badge.error {
+  background: var(--vscode-testing-iconFailed);
+  color: var(--vscode-editor-background);
+}
+
+.status-badge.warning {
+  background: var(--vscode-editorWarning-foreground);
+  color: var(--vscode-editor-background);
+}
+
+.status-badge.info {
+  background: var(--vscode-editorInfo-foreground);
+  color: var(--vscode-editor-background);
+}
+
+/* HTTP method colors */
+.method-get { color: var(--vscode-charts-green, #4ec9b0); }
+.method-post { color: var(--vscode-charts-yellow, #dcdcaa); }
+.method-put { color: var(--vscode-charts-blue, #569cd6); }
+.method-patch { color: var(--vscode-charts-purple, #c586c0); }
+.method-delete { color: var(--vscode-charts-red, #f44747); }
+
+/* Test results */
+.test-pass {
+  color: var(--vscode-testing-iconPassed);
+}
+
+.test-fail {
+  color: var(--vscode-testing-iconFailed);
+}
+
+/* Placeholder */
+.wire-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px;
+  color: var(--vscode-descriptionForeground);
+}

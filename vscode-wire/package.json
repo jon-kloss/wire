@@ -1,0 +1,232 @@
+{
+  "name": "wire",
+  "displayName": "Wire",
+  "description": "HTTP API Client for AI Agents — visual interface for Wire collections",
+  "version": "0.1.0",
+  "publisher": "wire",
+  "license": "AGPL-3.0-or-later",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Testing",
+    "Other"
+  ],
+  "keywords": [
+    "http",
+    "api",
+    "rest",
+    "testing",
+    "wire"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/.wire/wire.yaml"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "wire",
+          "title": "Wire",
+          "icon": "$(globe)"
+        }
+      ]
+    },
+    "views": {
+      "wire": [
+        {
+          "id": "wire.collections",
+          "name": "Collections",
+          "type": "tree"
+        },
+        {
+          "id": "wire.environments",
+          "name": "Environments",
+          "type": "tree"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "wire.sendRequest",
+        "title": "Wire: Send Request",
+        "icon": "$(play)"
+      },
+      {
+        "command": "wire.runTests",
+        "title": "Wire: Run Tests",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "wire.runChain",
+        "title": "Wire: Run Chain",
+        "icon": "$(link)"
+      },
+      {
+        "command": "wire.switchEnvironment",
+        "title": "Wire: Switch Environment",
+        "icon": "$(server-environment)"
+      },
+      {
+        "command": "wire.scanDrift",
+        "title": "Wire: Scan for Drift",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "wire.checkBreaking",
+        "title": "Wire: Check Breaking Changes",
+        "icon": "$(warning)"
+      },
+      {
+        "command": "wire.generateCollection",
+        "title": "Wire: Generate Collection",
+        "icon": "$(wand)"
+      },
+      {
+        "command": "wire.saveSnapshot",
+        "title": "Wire: Save Snapshot",
+        "icon": "$(save)"
+      },
+      {
+        "command": "wire.compareSnapshot",
+        "title": "Wire: Compare Snapshot",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "wire.showHistory",
+        "title": "Wire: Show History",
+        "icon": "$(history)"
+      },
+      {
+        "command": "wire.validateSecrets",
+        "title": "Wire: Validate Secrets",
+        "icon": "$(key)"
+      },
+      {
+        "command": "wire.openRequest",
+        "title": "Open Request",
+        "icon": "$(file)"
+      },
+      {
+        "command": "wire.newRequest",
+        "title": "New Request",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "wire.newFolder",
+        "title": "New Folder",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "wire.deleteItem",
+        "title": "Delete",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "wire.renameItem",
+        "title": "Rename",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "wire.refreshCollections",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "wire.newRequest",
+          "when": "view == wire.collections",
+          "group": "navigation"
+        },
+        {
+          "command": "wire.refreshCollections",
+          "when": "view == wire.collections",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "wire.openRequest",
+          "when": "view == wire.collections && viewItem == request",
+          "group": "inline"
+        },
+        {
+          "command": "wire.sendRequest",
+          "when": "view == wire.collections && viewItem == request",
+          "group": "1_actions"
+        },
+        {
+          "command": "wire.runTests",
+          "when": "view == wire.collections && viewItem == request",
+          "group": "1_actions"
+        },
+        {
+          "command": "wire.runChain",
+          "when": "view == wire.collections && viewItem == chain",
+          "group": "1_actions"
+        },
+        {
+          "command": "wire.newRequest",
+          "when": "view == wire.collections && viewItem == folder",
+          "group": "2_modify"
+        },
+        {
+          "command": "wire.newFolder",
+          "when": "view == wire.collections && viewItem == folder",
+          "group": "2_modify"
+        },
+        {
+          "command": "wire.renameItem",
+          "when": "view == wire.collections && viewItem =~ /request|folder|template/",
+          "group": "3_edit"
+        },
+        {
+          "command": "wire.deleteItem",
+          "when": "view == wire.collections && viewItem =~ /request|folder|template/",
+          "group": "3_edit"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "wire.sendRequest",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "activeWebviewPanelId == wire.requestPanel"
+      },
+      {
+        "command": "wire.switchEnvironment",
+        "key": "ctrl+shift+e",
+        "mac": "cmd+shift+e"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "build:webview": "cd webview && npm run build",
+    "watch:webview": "cd webview && npm run watch",
+    "lint": "eslint src --ext ts,tsx",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.21.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "undici": "^6.0.0"
+  }
+}
