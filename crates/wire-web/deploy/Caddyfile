@@ -1,0 +1,5 @@
+# Terminate TLS for the playground domain and proxy to the wire-web container.
+# Caddy obtains and renews the certificate automatically.
+{$WIRE_WEB_DOMAIN} {
+	reverse_proxy wire-web:8787
+}
