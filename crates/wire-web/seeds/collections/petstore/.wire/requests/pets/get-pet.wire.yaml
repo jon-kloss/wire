@@ -1,0 +1,10 @@
+name: Get Pet
+method: GET
+url: "{{base_url}}/pets/1"
+headers:
+  Authorization: "Bearer {{api_token}}"
+tests:
+  - field: status
+    equals: 200
+  - field: body.id
+    equals: 1

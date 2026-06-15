@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { invoke, open } from "./api/invoke";
+import { SampleGallery } from "./SampleGallery";
 import type {
   IpcResponse,
   IpcCollectionInfo,
@@ -865,6 +865,7 @@ function App() {
 
   return (
     <div className="app">
+      <SampleGallery />
       {/* Left Panel: Sidebar */}
       <aside className="sidebar">
         <button className="new-request-btn" onClick={handleNewRequest}>

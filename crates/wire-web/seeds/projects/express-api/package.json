@@ -1,0 +1,9 @@
+{
+  "name": "express-api",
+  "version": "1.0.0",
+  "description": "Sample Express API for the Wire web playground",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

@@ -1,0 +1,8 @@
+name: List Pets
+method: GET
+url: "{{base_url}}/pets"
+tests:
+  - field: status
+    equals: 200
+  - field: body
+    is_array: true

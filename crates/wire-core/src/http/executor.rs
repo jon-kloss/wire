@@ -14,6 +14,9 @@ pub async fn execute(
     // Interpolate URL
     let url = interpolate(&request.url, scope)?;
 
+    // Enforce the client's egress allowlist on the final, interpolated URL.
+    client.check_egress(&url)?;
+
     // Interpolate headers
     let headers = interpolate_map(&request.headers, scope)?;
 
