@@ -60,6 +60,25 @@ docker run --rm -p 8787:8787 wire-web
 The container binds `0.0.0.0:8787` and serves the bundled UI. Behind HTTPS,
 also set `WIRE_WEB_SECURE_COOKIE=1`.
 
+## Deploying behind HTTPS
+
+`deploy/docker-compose.yml` runs the playground behind [Caddy](https://caddyserver.com),
+which terminates TLS and provisions/renews a Let's Encrypt certificate
+automatically. `wire-web` runs HTTP-only on the internal network with
+`WIRE_WEB_SECURE_COOKIE=1` set (it's served to browsers over HTTPS).
+
+Point your domain's DNS at the host, then from the repo root:
+
+```bash
+WIRE_WEB_DOMAIN=play.example.com \
+  docker compose -f crates/wire-web/deploy/docker-compose.yml up -d
+```
+
+Caddy exposes ports 80/443 and proxies to the `wire-web` service; the
+certificate is obtained on first request and persisted in a named volume. The
+proxy also sends an HSTS header. To get Let's Encrypt renewal notices, set
+`WIRE_WEB_ACME_EMAIL` and enable the email block in `deploy/Caddyfile`.
+
 ## Configuration
 
 | Env var             | Default              | Purpose                                            |

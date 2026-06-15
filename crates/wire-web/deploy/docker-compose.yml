@@ -1,0 +1,45 @@
+# Run the Wire web playground behind Caddy with automatic HTTPS.
+#
+# Point your domain's DNS at this host, then bring it up from the repo root:
+#
+#   WIRE_WEB_DOMAIN=play.example.com \
+#     docker compose -f crates/wire-web/deploy/docker-compose.yml up -d
+#
+# Caddy provisions and renews a Let's Encrypt certificate for the domain
+# automatically. wire-web runs HTTP-only on the internal network and sets a
+# Secure session cookie because it is served to browsers over HTTPS.
+
+name: wire-web
+
+services:
+  wire-web:
+    build:
+      context: ../../..
+      dockerfile: crates/wire-web/Dockerfile
+    environment:
+      # Served over HTTPS by Caddy, so the session cookie must be Secure.
+      WIRE_WEB_SECURE_COOKIE: "1"
+    expose:
+      - "8787"
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    depends_on:
+      - wire-web
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      WIRE_WEB_DOMAIN: ${WIRE_WEB_DOMAIN:?set WIRE_WEB_DOMAIN to the domain that resolves to this host}
+      # Optional ACME account email; used only if the Caddyfile global block is enabled.
+      WIRE_WEB_ACME_EMAIL: ${WIRE_WEB_ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
