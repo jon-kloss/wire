@@ -34,7 +34,10 @@ async fn main() {
     let demo_base_url = std::env::var("WIRE_WEB_DEMO_URL")
         .unwrap_or_else(|_| format!("http://127.0.0.1:{port}/demo"));
     let ui_dir = std::env::var("WIRE_WEB_UI_DIR").unwrap_or_else(|_| "ui/dist".to_string());
-    let secure_cookies = env_flag("WIRE_WEB_SECURE_COOKIE", false);
+    // Default the Secure cookie on when running on a platform that fronts the
+    // app with HTTPS (Railway), so it's secure by default there; an explicit
+    // WIRE_WEB_SECURE_COOKIE still overrides either way.
+    let secure_cookies = env_flag("WIRE_WEB_SECURE_COOKIE", running_on_railway());
     let session_ttl = Duration::from_secs(env_u64("WIRE_WEB_SESSION_TTL_SECS", 3600));
 
     warn_if_ui_missing(&ui_dir);
@@ -154,6 +157,13 @@ fn pick_bind_addr(explicit_addr: Option<String>, port: Option<String>) -> String
         return format!("0.0.0.0:{port}");
     }
     "127.0.0.1:8787".to_string()
+}
+
+/// Whether we're running inside a Railway deployment, which terminates TLS at
+/// its edge. Railway always sets `RAILWAY_ENVIRONMENT_NAME` in the runtime.
+fn running_on_railway() -> bool {
+    std::env::var_os("RAILWAY_ENVIRONMENT_NAME").is_some()
+        || std::env::var_os("RAILWAY_ENVIRONMENT").is_some()
 }
 
 fn env_flag(key: &str, default: bool) -> bool {

@@ -87,9 +87,10 @@ so no reverse proxy is needed. The repo-root `railway.json` points Railway at
 
 1. Create a Railway project from this repo (it picks up `railway.json` and
    builds the Dockerfile).
-2. In the service's **Variables**, set `WIRE_WEB_SECURE_COOKIE=1` (Railway
-   serves over HTTPS, so the session cookie should be `Secure`).
-3. Generate a domain under **Settings → Networking**.
+2. Generate a domain under **Settings → Networking**.
+
+The session cookie is marked `Secure` automatically on Railway (detected via
+`RAILWAY_ENVIRONMENT_NAME`); set `WIRE_WEB_SECURE_COOKIE=0` to override.
 
 Or from the CLI: `railway up` from the repo root.
 
@@ -97,11 +98,12 @@ Or from the CLI: `railway up` from the repo root.
 
 | Env var             | Default              | Purpose                                            |
 | ------------------- | -------------------- | -------------------------------------------------- |
-| `WIRE_WEB_ADDR`     | `127.0.0.1:8787`     | Address to bind.                                   |
+| `WIRE_WEB_ADDR`     | `127.0.0.1:8787`     | Address to bind. Takes precedence over `PORT`.     |
+| `PORT`              | unset                | Platform-injected port (Railway/Heroku). Binds `0.0.0.0:$PORT` when `WIRE_WEB_ADDR` is unset. |
 | `WIRE_WEB_UI_DIR`   | `ui/dist`            | Directory of the built UI to serve.                |
 | `WIRE_WEB_DEMO_URL` | `http://127.0.0.1:<port>/demo` | Base URL the demo API is reachable at (and the only allowed request target). |
 | `WIRE_WEB_SESSION_TTL_SECS` | `3600` | Idle lifetime before a session and its sandbox are swept. |
-| `WIRE_WEB_SECURE_COOKIE` | `false` | Set the `Secure` attribute on the session cookie (enable behind HTTPS). |
+| `WIRE_WEB_SECURE_COOKIE` | `false` (`true` on Railway) | Set the `Secure` attribute on the session cookie (enable behind HTTPS). |
 
 ## Known limitations (to address in later phases)
 
