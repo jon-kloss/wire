@@ -46,6 +46,19 @@ cargo run -p wire-web
 
 Then open <http://127.0.0.1:8787>.
 
+## Running with Docker
+
+A multi-stage `Dockerfile` builds the UI and the server into one image (the
+embedded seeds ship inside the binary). Build from the repo root:
+
+```bash
+docker build -f crates/wire-web/Dockerfile -t wire-web .
+docker run --rm -p 8787:8787 wire-web
+```
+
+The container binds `0.0.0.0:8787` and serves the bundled UI. Behind HTTPS,
+also set `WIRE_WEB_SECURE_COOKIE=1`.
+
 ## Configuration
 
 | Env var             | Default              | Purpose                                            |
