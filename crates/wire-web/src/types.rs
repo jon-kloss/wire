@@ -207,3 +207,24 @@ pub struct EvaluateTestsArgs {
     pub assertions: Vec<Assertion>,
     pub response: IpcResponse,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSourceFilesArgs {
+    pub source_dir: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadSourceFileArgs {
+    pub source_dir: String,
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveSourceFileArgs {
+    pub source_dir: String,
+    pub path: String,
+    pub content: String,
+}

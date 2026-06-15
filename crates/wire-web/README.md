@@ -23,8 +23,14 @@ codebase, and detect drift).
   endpoints). An egress guard rejects requests to any other host, so the server
   is never an open proxy.
 - **Real codebase features.** Scanning, generation, and drift detection run the
-  actual `wire-core` engine against the seeded sample project — nothing is
+  actual `wire-core` engine against seeded sample projects for every supported
+  framework (Express, FastAPI, ASP.NET Core, Spring Boot, Next.js) — nothing is
   faked.
+- **Interactive drift demo.** From the Drift panel, "Edit Source" opens an
+  in-browser editor for the scanned project's files. Change a route handler,
+  save, and re-check drift to watch Wire detect the difference against the
+  generated collection. Backed by the sandbox-confined `list_source_files` /
+  `read_source_file` / `save_source_file` endpoints.
 
 ## Running locally
 

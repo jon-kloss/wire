@@ -1932,3 +1932,136 @@
 .sample-gallery-actions button:hover {
   background: #3c3c3c;
 }
+
+/* ── Web playground: source editor modal ──────────────────────────── */
+.source-editor-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.source-editor {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  width: 880px;
+  max-width: 94vw;
+  height: 620px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+.source-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 0;
+}
+.source-editor-header h2 {
+  margin: 0;
+  font-size: 17px;
+  color: #f0f0f0;
+}
+.source-editor-close {
+  background: none;
+  border: none;
+  color: #9a9a9a;
+  font-size: 16px;
+  cursor: pointer;
+}
+.source-editor-close:hover {
+  color: #f0f0f0;
+}
+.source-editor-hint {
+  margin: 6px 20px 12px;
+  font-size: 12px;
+  color: #9a9a9a;
+}
+.source-editor-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  border-top: 1px solid #2a2a2a;
+}
+.source-file-list {
+  width: 240px;
+  border-right: 1px solid #2a2a2a;
+  overflow: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.source-file-item {
+  text-align: left;
+  background: none;
+  border: none;
+  color: #cfcfcf;
+  font-size: 12px;
+  font-family: var(--mono, monospace);
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  word-break: break-all;
+}
+.source-file-item:hover {
+  background: #2a2a2a;
+}
+.source-file-item.selected {
+  background: #094771;
+  color: #fff;
+}
+.source-editor-pane {
+  flex: 1;
+  min-width: 0;
+}
+.source-empty {
+  color: #9a9a9a;
+  font-size: 13px;
+  padding: 16px;
+}
+.source-editor-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid #2a2a2a;
+}
+.source-editor-spacer {
+  flex: 1;
+}
+.source-editor-status {
+  font-size: 12px;
+  color: #4ec9b0;
+}
+.source-editor-error {
+  font-size: 12px;
+  color: #f44747;
+}
+.source-editor-footer button {
+  background: #333;
+  border: 1px solid #444;
+  color: #ddd;
+  padding: 6px 14px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.source-editor-footer button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.source-editor-footer button:not(:disabled):hover {
+  background: #3c3c3c;
+}
+.source-editor-primary {
+  background: #0e639c !important;
+  border-color: #0e639c !important;
+  color: #fff !important;
+}
+.source-editor-primary:not(:disabled):hover {
+  background: #1177bb !important;
+}
