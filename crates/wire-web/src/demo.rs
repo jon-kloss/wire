@@ -13,6 +13,11 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
+/// Cap on stored demo pets. The demo store is a shared, ephemeral fixture
+/// (the server-side HTTP client can't carry a per-browser identity), so we
+/// bound it to keep `POST /pets` from growing memory without limit.
+const MAX_DEMO_PETS: usize = 100;
+
 pub fn router() -> Router<SharedState> {
     Router::new()
         .route("/health", get(health))
@@ -63,11 +68,21 @@ async fn create_pet(
     Json(body): Json<Value>,
 ) -> impl IntoResponse {
     let mut pets = state.demo_pets.lock().await;
-    let next_id = pets.len() as u64 + 1;
+    let next_id = pets
+        .last()
+        .and_then(|p| p.get("id"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        + 1;
     let mut pet = body;
     if let Value::Object(ref mut map) = pet {
         map.insert("id".to_string(), json!(next_id));
     }
     pets.push(pet.clone());
+    // Bound growth: drop the oldest entries past the cap.
+    if pets.len() > MAX_DEMO_PETS {
+        let overflow = pets.len() - MAX_DEMO_PETS;
+        pets.drain(0..overflow);
+    }
     (StatusCode::CREATED, Json(pet))
 }

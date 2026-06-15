@@ -47,13 +47,24 @@ Then open <http://127.0.0.1:8787>.
 | `WIRE_WEB_ADDR`     | `127.0.0.1:8787`     | Address to bind.                                   |
 | `WIRE_WEB_UI_DIR`   | `ui/dist`            | Directory of the built UI to serve.                |
 | `WIRE_WEB_DEMO_URL` | `http://127.0.0.1:<port>/demo` | Base URL the demo API is reachable at (and the only allowed request target). |
+| `WIRE_WEB_SESSION_TTL_SECS` | `3600` | Idle lifetime before a session and its sandbox are swept. |
+| `WIRE_WEB_SECURE_COOKIE` | `false` | Set the `Secure` attribute on the session cookie (enable behind HTTPS). |
 
 ## Known limitations (to address in later phases)
 
-- The egress guard is enforced on the interactive send paths; request **chains**
-  execute seeded files that target `{{base_url}}` but are not yet individually
-  egress-checked.
 - `$aws:` / `$vault:` secret resolvers shell out to external CLIs and won't
   resolve in the sandbox; `$env:` and `$dotenv:` work.
-- Sessions and their sandboxes are in-memory / on-disk and not yet swept on
-  expiry.
+- The bundled demo API state is a single shared, bounded fixture (the
+  server-side HTTP client can't carry a per-browser identity), so created demo
+  pets are visible to all sessions until process restart.
+
+## Security notes
+
+- **Egress** is enforced inside the shared `HttpClient` (`HttpClient::restricted_to`),
+  so every execution path — single sends *and* chains — is confined to the
+  bundled demo API and none can bypass it.
+- **Sandboxes** are confined per session and the session id is validated before
+  it's used as a path component. Idle sessions (and their sandboxes) are swept
+  after `WIRE_WEB_SESSION_TTL_SECS` (default 1h).
+- Set `WIRE_WEB_SECURE_COOKIE=1` when serving over HTTPS so the session cookie
+  carries the `Secure` attribute.

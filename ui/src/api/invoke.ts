@@ -28,8 +28,10 @@ export async function invoke<T>(
   });
   const text = await res.text();
   if (!res.ok) {
-    // Match Tauri's behavior: invoke rejects with the backend error string.
-    throw new Error(text || res.statusText);
+    // Match Tauri's behavior exactly: invoke rejects with the bare error
+    // string (not an Error), so `String(err)` renders identically in both
+    // builds rather than gaining an "Error: " prefix in the browser.
+    throw text || res.statusText;
   }
   return (text ? JSON.parse(text) : undefined) as T;
 }

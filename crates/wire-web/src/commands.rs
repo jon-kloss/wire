@@ -12,7 +12,7 @@ use wire_core::collection::{
 use wire_core::history::{self, HistoryEntry};
 use wire_core::http::execute;
 use wire_core::scan;
-use wire_core::variables::{interpolate, VariableScope};
+use wire_core::variables::VariableScope;
 
 type Session = Extension<Arc<SessionState>>;
 
@@ -41,47 +41,90 @@ fn sandbox_path(session: &SessionState, requested: &str) -> AppResult<std::path:
     resolve_in_sandbox(&session.sandbox, requested).map_err(AppError)
 }
 
-/// Restrict outbound requests to the bundled demo API. This is the network half
-/// of the demo's isolation — without it the server would be an open proxy.
-fn enforce_demo_egress(url: &str, demo_base: &str) -> AppResult<()> {
-    if url.starts_with(demo_base) {
-        Ok(())
-    } else {
-        Err(AppError(format!(
-            "Demo mode: requests are restricted to the bundled demo API at {demo_base}. \
-             Point the request's URL at {{{{base_url}}}} to try it out."
-        )))
-    }
+/// Immediate subdirectories of `dir`, or empty if it can't be read.
+fn subdirs(dir: &Path) -> Vec<std::path::PathBuf> {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect()
+}
+
+/// Read the collection's display name from its `wire.yaml`, if present.
+fn collection_name(wire_dir: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(wire_dir.join("wire.yaml")).ok()?;
+    let metadata: wire_core::collection::WireCollection = serde_yaml::from_str(&content).ok()?;
+    Some(metadata.name)
+}
+
+/// Turn a directory name like `express-api` into a label like `Express Api`.
+fn prettify(dir: &Path) -> String {
+    let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    name.split(['-', '_'])
+        .filter(|s| !s.is_empty())
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 // ---------------------------------------------------------------------------
 
 /// Web-only: list the seeded samples that replace the desktop folder picker.
+/// Derived by scanning the seeded sandbox so the seeds remain the single source
+/// of truth — adding or renaming a seed dir is reflected here automatically.
 pub async fn list_samples(Extension(session): Session) -> Json<Vec<SampleInfo>> {
     let sandbox = &session.sandbox;
-    let collection = sandbox.join("collections/petstore/.wire");
-    let project = sandbox.join("projects/express-api");
-    let workspace = sandbox.join("collections");
-    Json(vec![
-        SampleInfo {
-            label: "Petstore Demo".to_string(),
-            description: "A ready-made collection that talks to the bundled demo API.".to_string(),
-            path: collection.to_string_lossy().to_string(),
-            kind: "collection".to_string(),
-        },
-        SampleInfo {
-            label: "Express API (sample source)".to_string(),
-            description: "A small Express app — scan it to generate a collection.".to_string(),
-            path: project.to_string_lossy().to_string(),
+    let mut samples = Vec::new();
+
+    // Collections: any subdirectory of collections/ that contains a `.wire` dir.
+    let collections_dir = sandbox.join("collections");
+    for dir in subdirs(&collections_dir) {
+        let wire_dir = dir.join(".wire");
+        if wire_dir.is_dir() {
+            samples.push(SampleInfo {
+                label: collection_name(&wire_dir).unwrap_or_else(|| prettify(&dir)),
+                description: "A ready-made collection that talks to the bundled demo API."
+                    .to_string(),
+                path: wire_dir.to_string_lossy().to_string(),
+                kind: "collection".to_string(),
+            });
+        }
+    }
+
+    // Projects: every subdirectory of projects/.
+    for dir in subdirs(&sandbox.join("projects")) {
+        samples.push(SampleInfo {
+            label: format!("{} (sample source)", prettify(&dir)),
+            description: "A sample codebase — scan it to generate a collection.".to_string(),
+            path: dir.to_string_lossy().to_string(),
             kind: "project".to_string(),
-        },
-        SampleInfo {
-            label: "Sandbox workspace".to_string(),
-            description: "Your private, throwaway workspace for new collections.".to_string(),
-            path: workspace.to_string_lossy().to_string(),
-            kind: "location".to_string(),
-        },
-    ])
+        });
+    }
+
+    // Stable ordering so the gallery doesn't shuffle between requests.
+    samples
+        .sort_by(|a, b| (a.kind.clone(), a.label.clone()).cmp(&(b.kind.clone(), b.label.clone())));
+
+    // The sandbox workspace is always offered as a target for new collections.
+    samples.push(SampleInfo {
+        label: "Sandbox workspace".to_string(),
+        description: "Your private, throwaway workspace for new collections.".to_string(),
+        path: collections_dir.to_string_lossy().to_string(),
+        kind: "location".to_string(),
+    });
+
+    Json(samples)
 }
 
 pub async fn open_collection(
@@ -129,9 +172,7 @@ pub async fn send_request(
     let history_path = history::resolve_history_path(inner.collection_path.as_deref());
     drop(inner);
 
-    let resolved_url = interpolate(&request.url, &scope).map_err(|e| e.to_string())?;
-    enforce_demo_egress(&resolved_url, &state.demo_base_url)?;
-
+    // Egress is enforced inside the HTTP client (see HttpClient::restricted_to).
     let response = execute(&state.http_client, &request, &scope)
         .await
         .map_err(|e| e.to_string())?;
@@ -181,9 +222,7 @@ pub async fn send_raw_request(
     let history_path = history::resolve_history_path(inner.collection_path.as_deref());
     drop(inner);
 
-    let resolved_url = interpolate(&request.url, &scope).map_err(|e| e.to_string())?;
-    enforce_demo_egress(&resolved_url, &state.demo_base_url)?;
-
+    // Egress is enforced inside the HTTP client (see HttpClient::restricted_to).
     let response = execute(&state.http_client, &request, &scope)
         .await
         .map_err(|e| e.to_string())?;

@@ -10,9 +10,13 @@ use axum::middleware::from_fn_with_state;
 use axum::routing::post;
 use axum::Router;
 use state::{AppState, SharedState};
+use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
+
+const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 
 #[tokio::main]
 async fn main() {
@@ -30,18 +34,20 @@ async fn main() {
     let demo_base_url = std::env::var("WIRE_WEB_DEMO_URL")
         .unwrap_or_else(|_| format!("http://127.0.0.1:{port}/demo"));
     let ui_dir = std::env::var("WIRE_WEB_UI_DIR").unwrap_or_else(|_| "ui/dist".to_string());
+    let secure_cookies = env_flag("WIRE_WEB_SECURE_COOKIE", false);
+    let session_ttl = Duration::from_secs(env_u64("WIRE_WEB_SESSION_TTL_SECS", 3600));
 
-    let state: SharedState = Arc::new(AppState::new(demo_base_url.clone()));
+    warn_if_ui_missing(&ui_dir);
 
-    let app = Router::new()
-        .nest("/api", api_router(state.clone()))
-        .nest("/demo", demo::router())
-        .fallback_service(
-            ServeDir::new(&ui_dir)
-                .not_found_service(ServeFile::new(format!("{ui_dir}/index.html"))),
-        )
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+    let state: SharedState = Arc::new(AppState::new(
+        demo_base_url.clone(),
+        secure_cookies,
+        session_ttl,
+    ));
+
+    spawn_session_sweeper(state.clone());
+
+    let app = build_app(state, &ui_dir);
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
@@ -51,6 +57,18 @@ async fn main() {
     tracing::info!("Serving UI from: {ui_dir}");
 
     axum::serve(listener, app).await.expect("server error");
+}
+
+/// Assemble the full application: API routes behind the session middleware, the
+/// bundled demo API, and the static UI with SPA fallback.
+fn build_app(state: SharedState, ui_dir: &str) -> Router {
+    let index = Path::new(ui_dir).join("index.html");
+    Router::new()
+        .nest("/api", api_router(state.clone()))
+        .nest("/demo", demo::router())
+        .fallback_service(ServeDir::new(ui_dir).not_found_service(ServeFile::new(index)))
+        .layer(TraceLayer::new_for_http())
+        .with_state(state)
 }
 
 /// All command endpoints, behind the session middleware that gives each visitor
@@ -90,4 +108,126 @@ fn api_router(state: SharedState) -> Router<SharedState> {
         )
         .route("/run_chain", post(commands::run_chain))
         .layer(from_fn_with_state(state, session::attach_session))
+}
+
+/// Periodically evict idle sessions and delete their sandboxes.
+fn spawn_session_sweeper(state: SharedState) {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(SWEEP_INTERVAL);
+        loop {
+            ticker.tick().await;
+            let swept = state.sweep_expired_sessions().await;
+            if swept > 0 {
+                tracing::info!("swept {swept} expired session(s)");
+            }
+        }
+    });
+}
+
+fn warn_if_ui_missing(ui_dir: &str) {
+    if !Path::new(ui_dir).join("index.html").is_file() {
+        tracing::warn!(
+            "UI not found at '{ui_dir}/index.html' — the server will return 404s for the app. \
+             Build it with `cd ui && npm run build`, or set WIRE_WEB_UI_DIR."
+        );
+    }
+}
+
+fn env_flag(key: &str, default: bool) -> bool {
+    match std::env::var(key) {
+        Ok(v) => matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"),
+        Err(_) => default,
+    }
+}
+
+fn env_u64(key: &str, default: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    fn test_state() -> SharedState {
+        Arc::new(AppState::new(
+            "http://127.0.0.1:9/demo".to_string(),
+            false,
+            Duration::from_secs(3600),
+        ))
+    }
+
+    fn post(uri: &str, sid: Option<&str>, body: &str) -> Request<Body> {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("content-type", "application/json");
+        if let Some(sid) = sid {
+            builder = builder.header("cookie", format!("wire_session={sid}"));
+        }
+        builder.body(Body::from(body.to_string())).unwrap()
+    }
+
+    async fn body_string(resp: axum::response::Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn external_url_is_blocked_by_egress() {
+        let app = build_app(test_state(), "ui/dist");
+        let resp = app
+            .oneshot(post(
+                "/api/send_raw_request",
+                None,
+                r#"{"request":{"name":"x","method":"GET","url":"http://example.com/"}}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert!(body_string(resp).await.contains("blocked"));
+    }
+
+    #[tokio::test]
+    async fn path_escaping_sandbox_is_rejected() {
+        let app = build_app(test_state(), "ui/dist");
+        let resp = app
+            .oneshot(post(
+                "/api/open_collection",
+                None,
+                r#"{"wireDir":"../../etc"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert!(body_string(resp).await.contains("escapes"));
+    }
+
+    #[tokio::test]
+    async fn sessions_get_isolated_sandboxes() {
+        let app = build_app(test_state(), "ui/dist");
+        let a = body_string(
+            app.clone()
+                .oneshot(post("/api/list_samples", Some("aaaa"), "{}"))
+                .await
+                .unwrap(),
+        )
+        .await;
+        let b = body_string(
+            app.oneshot(post("/api/list_samples", Some("bbbb"), "{}"))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(a.contains("/aaaa/"), "session A path missing: {a}");
+        assert!(b.contains("/bbbb/"), "session B path missing: {b}");
+        assert!(!a.contains("/bbbb/"), "session A leaked B's sandbox");
+    }
 }
