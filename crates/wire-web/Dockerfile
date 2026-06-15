@@ -17,7 +17,7 @@ FROM rust:1-slim AS server
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
-RUN cargo build -p wire-web --release
+RUN cargo build --locked -p wire-web --release
 
 # 3. Minimal runtime image.
 FROM debian:bookworm-slim

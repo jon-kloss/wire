@@ -10,6 +10,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: every job here only reads the repository.
+permissions:
+  contents: read
+
 jobs:
   # Rust checks for the non-Tauri crates. The wire-app (Tauri GUI) crate needs
   # GTK/WebKit system libraries to build and is covered by the release workflow,
@@ -17,6 +21,7 @@ jobs:
   rust:
     name: Rust (core, cli, web)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -26,14 +31,15 @@ jobs:
       - name: Format
         run: cargo fmt --check
       - name: Clippy
-        run: cargo clippy -p wire-core -p wire-cli -p wire-web -- -D warnings
+        run: cargo clippy --locked --all-targets -p wire-core -p wire-cli -p wire-web -- -D warnings
       - name: Test
-        run: cargo test -p wire-core -p wire-cli -p wire-web
+        run: cargo test --locked -p wire-core -p wire-cli -p wire-web
 
   # UI lint + production build.
   ui:
     name: UI
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -55,6 +61,7 @@ jobs:
   docker:
     name: Docker image
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Build wire-web image
