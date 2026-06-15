@@ -20,8 +20,9 @@ codebase, and detect drift).
   All client-supplied paths are confined to that sandbox.
 - **Bundled demo API.** Requests are executed server-side against a small
   in-memory API mounted at `/demo` (a pet store plus a few httpbin-style
-  endpoints). An egress guard rejects requests to any other host, so the server
-  is never an open proxy.
+  endpoints). Each session's `{{base_url}}` is scoped to `/demo/s/<session-id>`,
+  so its demo data is isolated from other visitors. An egress guard rejects
+  requests to any other host, so the server is never an open proxy.
 - **Real codebase features.** Scanning, generation, and drift detection run the
   actual `wire-core` engine against seeded sample projects for every supported
   framework (Express, FastAPI, ASP.NET Core, Spring Boot, Next.js) — nothing is
@@ -73,9 +74,6 @@ also set `WIRE_WEB_SECURE_COOKIE=1`.
 
 - `$aws:` / `$vault:` secret resolvers shell out to external CLIs and won't
   resolve in the sandbox; `$env:` and `$dotenv:` work.
-- The bundled demo API state is a single shared, bounded fixture (the
-  server-side HTTP client can't carry a per-browser identity), so created demo
-  pets are visible to all sessions until process restart.
 
 ## Security notes
 

@@ -183,6 +183,49 @@ mod tests {
         String::from_utf8(bytes.to_vec()).unwrap()
     }
 
+    fn get(uri: &str) -> Request<Body> {
+        Request::builder()
+            .method("GET")
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn demo_pets_are_isolated_per_session() {
+        let app = build_app(test_state(), "ui/dist");
+        // Create a pet in session aaaa.
+        let created = app
+            .clone()
+            .oneshot(post("/demo/s/aaaa/pets", None, r#"{"name":"Rex"}"#))
+            .await
+            .unwrap();
+        assert_eq!(created.status(), StatusCode::CREATED);
+
+        // A different session must not see it.
+        let other = body_string(app.clone().oneshot(get("/demo/s/bbbb/pets")).await.unwrap()).await;
+        assert!(
+            !other.contains("Rex"),
+            "pet leaked across sessions: {other}"
+        );
+
+        // The originating session must.
+        let mine = body_string(app.oneshot(get("/demo/s/aaaa/pets")).await.unwrap()).await;
+        assert!(mine.contains("Rex"), "own pet missing: {mine}");
+    }
+
+    #[tokio::test]
+    async fn sweep_drops_orphan_demo_stores() {
+        let state = test_state();
+        let app = build_app(state.clone(), "ui/dist");
+        // Allocate a demo store for a sid that has no backing session.
+        app.oneshot(get("/demo/s/orphan/pets")).await.unwrap();
+        assert!(state.demo_pets.lock().await.contains_key("orphan"));
+        // The sweep should drop it (it isn't tied to a live session).
+        state.sweep_expired_sessions().await;
+        assert!(!state.demo_pets.lock().await.contains_key("orphan"));
+    }
+
     #[tokio::test]
     async fn external_url_is_blocked_by_egress() {
         let app = build_app(test_state(), "ui/dist");
