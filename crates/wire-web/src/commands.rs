@@ -136,8 +136,7 @@ pub async fn list_samples(Extension(session): Session) -> Json<Vec<SampleInfo>> 
     }
 
     // Stable ordering so the gallery doesn't shuffle between requests.
-    samples
-        .sort_by(|a, b| (a.kind.clone(), a.label.clone()).cmp(&(b.kind.clone(), b.label.clone())));
+    samples.sort_by_key(|s| (s.kind.clone(), s.label.clone()));
 
     // The sandbox workspace is always offered as a target for new collections.
     samples.push(SampleInfo {

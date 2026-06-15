@@ -12,8 +12,13 @@ COPY ui/ ./
 RUN npm run build
 
 # 2. Build the server binary (only wire-web + wire-core compile; the Tauri GUI
-#    crate is not built, so no GTK system libraries are needed).
+#    crate is not built, so no GTK system libraries are needed). pkg-config and
+#    libssl-dev are needed because reqwest's default native-tls backend builds
+#    openssl-sys.
 FROM rust:1-slim AS server
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
@@ -21,8 +26,10 @@ RUN cargo build --locked -p wire-web --release
 
 # 3. Minimal runtime image.
 FROM debian:bookworm-slim
+# ca-certificates for TLS roots; libssl3 because the binary dynamically links
+# OpenSSL (reqwest's native-tls backend).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates libssl3 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=server /app/target/release/wire-web /usr/local/bin/wire-web
