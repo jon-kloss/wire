@@ -14,8 +14,10 @@ RUN npm run build
 # 2. Build the server binary (only wire-web + wire-core compile; the Tauri GUI
 #    crate is not built, so no GTK system libraries are needed). pkg-config and
 #    libssl-dev are needed because reqwest's default native-tls backend builds
-#    openssl-sys.
-FROM rust:1-slim AS server
+#    openssl-sys. Pinned to bookworm so the binary links against the same glibc
+#    as the runtime image below (a newer builder would require a glibc the
+#    runtime doesn't have).
+FROM rust:1-slim-bookworm AS server
 RUN apt-get update \
     && apt-get install -y --no-install-recommends pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
