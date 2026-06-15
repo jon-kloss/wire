@@ -75,7 +75,9 @@ WIRE_WEB_DOMAIN=play.example.com \
 ```
 
 Caddy exposes ports 80/443 and proxies to the `wire-web` service; the
-certificate is obtained on first request and persisted in a named volume.
+certificate is obtained on first request and persisted in a named volume. The
+proxy also sends an HSTS header. To get Let's Encrypt renewal notices, set
+`WIRE_WEB_ACME_EMAIL` and enable the email block in `deploy/Caddyfile`.
 
 ## Configuration
 

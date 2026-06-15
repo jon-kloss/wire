@@ -1,5 +1,13 @@
 # Terminate TLS for the playground domain and proxy to the wire-web container.
 # Caddy obtains and renews the certificate automatically.
+#
+# Optional: receive Let's Encrypt expiry/renewal notices by uncommenting the
+# global block below and passing WIRE_WEB_ACME_EMAIL to the caddy service.
+# {
+# 	email {$WIRE_WEB_ACME_EMAIL}
+# }
 {$WIRE_WEB_DOMAIN} {
 	reverse_proxy wire-web:8787
+	# Refuse HTTP downgrades — complements the Secure session cookie.
+	header Strict-Transport-Security "max-age=31536000"
 }

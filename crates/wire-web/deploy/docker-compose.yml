@@ -32,6 +32,8 @@ services:
       - "443:443"
     environment:
       WIRE_WEB_DOMAIN: ${WIRE_WEB_DOMAIN:?set WIRE_WEB_DOMAIN to the domain that resolves to this host}
+      # Optional ACME account email; used only if the Caddyfile global block is enabled.
+      WIRE_WEB_ACME_EMAIL: ${WIRE_WEB_ACME_EMAIL:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
