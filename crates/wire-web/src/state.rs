@@ -23,8 +23,9 @@ pub struct AppState {
     pub session_ttl: Duration,
     /// Per-visitor sessions, keyed by the `wire_session` cookie.
     pub sessions: Mutex<HashMap<String, Arc<SessionState>>>,
-    /// In-memory data backing the bundled demo API (shared across sessions).
-    pub demo_pets: Mutex<Vec<serde_json::Value>>,
+    /// In-memory data backing the bundled demo API, keyed by session id so each
+    /// visitor gets their own isolated pet store (lazily seeded on first use).
+    pub demo_pets: Mutex<HashMap<String, Vec<serde_json::Value>>>,
 }
 
 impl AppState {
@@ -39,12 +40,12 @@ impl AppState {
             secure_cookies,
             session_ttl,
             sessions: Mutex::new(HashMap::new()),
-            demo_pets: Mutex::new(seed_demo_pets()),
+            demo_pets: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Remove sessions whose idle time exceeds the TTL, deleting their sandboxes.
-    /// Returns the number of sessions swept.
+    /// Remove sessions whose idle time exceeds the TTL, deleting their sandboxes
+    /// and demo state. Returns the number of sessions swept.
     pub async fn sweep_expired_sessions(&self) -> usize {
         let now = Instant::now();
         let mut sessions = self.sessions.lock().await;
@@ -54,16 +55,19 @@ impl AppState {
                 expired.push(sid.clone());
             }
         }
+        let mut demo_pets = self.demo_pets.lock().await;
         for sid in &expired {
             if let Some(session) = sessions.remove(sid) {
                 let _ = std::fs::remove_dir_all(&session.sandbox);
             }
+            demo_pets.remove(sid);
         }
         expired.len()
     }
 }
 
-fn seed_demo_pets() -> Vec<serde_json::Value> {
+/// Initial demo pets seeded into each session's store on first access.
+pub(crate) fn seed_demo_pets() -> Vec<serde_json::Value> {
     vec![
         serde_json::json!({ "id": 1, "name": "Fido", "species": "dog" }),
         serde_json::json!({ "id": 2, "name": "Whiskers", "species": "cat" }),

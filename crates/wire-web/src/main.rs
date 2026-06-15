@@ -183,6 +183,37 @@ mod tests {
         String::from_utf8(bytes.to_vec()).unwrap()
     }
 
+    fn get(uri: &str) -> Request<Body> {
+        Request::builder()
+            .method("GET")
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn demo_pets_are_isolated_per_session() {
+        let app = build_app(test_state(), "ui/dist");
+        // Create a pet in session aaaa.
+        let created = app
+            .clone()
+            .oneshot(post("/demo/s/aaaa/pets", None, r#"{"name":"Rex"}"#))
+            .await
+            .unwrap();
+        assert_eq!(created.status(), StatusCode::CREATED);
+
+        // A different session must not see it.
+        let other = body_string(app.clone().oneshot(get("/demo/s/bbbb/pets")).await.unwrap()).await;
+        assert!(
+            !other.contains("Rex"),
+            "pet leaked across sessions: {other}"
+        );
+
+        // The originating session must.
+        let mine = body_string(app.oneshot(get("/demo/s/aaaa/pets")).await.unwrap()).await;
+        assert!(mine.contains("Rex"), "own pet missing: {mine}");
+    }
+
     #[tokio::test]
     async fn external_url_is_blocked_by_egress() {
         let app = build_app(test_state(), "ui/dist");

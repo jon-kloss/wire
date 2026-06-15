@@ -55,9 +55,12 @@ async fn ensure_session(state: &SharedState, sid: &str) -> Arc<SessionState> {
     }
 
     let root = std::env::temp_dir().join("wire-web").join(sid);
+    // Each session's {{base_url}} is scoped to its own demo store at
+    // <demo_base_url>/s/<sid>, so its pets stay isolated from other visitors.
+    let demo_base = format!("{}/s/{}", state.demo_base_url, sid);
     // If seeding fails we still hand back a session pointed at the (possibly
     // partial) sandbox; handlers will surface any resulting filesystem errors.
-    let _ = sandbox::seed_sandbox(&root, &state.demo_base_url);
+    let _ = sandbox::seed_sandbox(&root, &demo_base);
     let canonical = std::fs::canonicalize(&root).unwrap_or(root);
 
     let session = Arc::new(SessionState {
