@@ -52,6 +52,19 @@ fn subdirs(dir: &Path) -> Vec<std::path::PathBuf> {
         .collect()
 }
 
+/// Optional `.sample.json` descriptor shipped alongside a sample project.
+#[derive(serde::Deserialize)]
+struct SampleManifest {
+    label: String,
+    description: String,
+}
+
+/// Read a sample project's `.sample.json` descriptor, if present and valid.
+fn read_sample_manifest(dir: &Path) -> Option<SampleManifest> {
+    let content = std::fs::read_to_string(dir.join(".sample.json")).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
 /// Read the collection's display name from its `wire.yaml`, if present.
 fn collection_name(wire_dir: &Path) -> Option<String> {
     let content = std::fs::read_to_string(wire_dir.join("wire.yaml")).ok()?;
@@ -102,11 +115,21 @@ pub async fn list_samples(Extension(session): Session) -> Json<Vec<SampleInfo>> 
         }
     }
 
-    // Projects: every subdirectory of projects/.
+    // Projects: every subdirectory of projects/. An optional `.sample.json`
+    // descriptor provides a polished label/description; otherwise we fall back
+    // to the directory name.
     for dir in subdirs(&sandbox.join("projects")) {
+        let manifest = read_sample_manifest(&dir);
+        let label = manifest
+            .as_ref()
+            .map(|m| m.label.clone())
+            .unwrap_or_else(|| prettify(&dir));
+        let description = manifest
+            .map(|m| m.description)
+            .unwrap_or_else(|| "A sample codebase — scan it to generate a collection.".to_string());
         samples.push(SampleInfo {
-            label: format!("{} (sample source)", prettify(&dir)),
-            description: "A sample codebase — scan it to generate a collection.".to_string(),
+            label: format!("{label} (sample source)"),
+            description,
             path: dir.to_string_lossy().to_string(),
             kind: "project".to_string(),
         });
@@ -710,4 +733,150 @@ pub async fn evaluate_tests(
         &args.assertions,
         &wire_response,
     )))
+}
+
+// ---------------------------------------------------------------------------
+// Source editing — lets the playground edit a sample project's source in the
+// browser and re-run drift, making the codebase features hands-on.
+// ---------------------------------------------------------------------------
+
+const MAX_SOURCE_FILES: usize = 500;
+const MAX_SOURCE_BYTES: usize = 256 * 1024;
+
+/// List editable source files (relative paths) under a scanned project.
+pub async fn list_source_files(
+    Extension(session): Session,
+    Json(args): Json<ListSourceFilesArgs>,
+) -> AppResult<Json<Vec<String>>> {
+    let root = sandbox_path(&session, &args.source_dir)?;
+    let mut files = Vec::new();
+    collect_source_files(&root, &root, &mut files, 12);
+    files.sort();
+    Ok(Json(files))
+}
+
+/// Read a single source file's text content.
+pub async fn read_source_file(
+    Extension(session): Session,
+    Json(args): Json<ReadSourceFileArgs>,
+) -> AppResult<Json<String>> {
+    let path = source_file_path(&session, &args.source_dir, &args.path)?;
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    Ok(Json(content))
+}
+
+/// Overwrite a source file so the next drift check reflects the edit.
+pub async fn save_source_file(
+    Extension(session): Session,
+    Json(args): Json<SaveSourceFileArgs>,
+) -> AppResult<Json<()>> {
+    if args.content.len() > MAX_SOURCE_BYTES {
+        return Err(AppError(
+            "File too large to save in the playground".to_string(),
+        ));
+    }
+    let path = source_file_path(&session, &args.source_dir, &args.path)?;
+    if !path.is_file() {
+        return Err(AppError(format!(
+            "Not an existing source file: {}",
+            args.path
+        )));
+    }
+    std::fs::write(&path, args.content).map_err(|e| format!("Failed to write file: {e}"))?;
+    Ok(Json(()))
+}
+
+/// Resolve `<source_dir>/<path>`, confining the result to `source_dir` (not just
+/// the sandbox) so the source editor can't read or clobber files outside the
+/// project being edited — e.g. another sample or the generated `.wire`.
+fn source_file_path(
+    session: &SessionState,
+    source_dir: &str,
+    rel: &str,
+) -> AppResult<std::path::PathBuf> {
+    let root = sandbox_path(session, source_dir)?;
+    let resolved = sandbox_path(session, &root.join(rel).to_string_lossy())?;
+    if resolved.starts_with(&root) {
+        Ok(resolved)
+    } else {
+        Err(AppError(format!(
+            "Path escapes the project directory: {rel}"
+        )))
+    }
+}
+
+/// Recursively collect editable text source files, skipping build artefacts,
+/// the generated `.wire` directory, and anything that isn't UTF-8 text.
+fn collect_source_files(root: &Path, dir: &Path, out: &mut Vec<String>, depth: u32) {
+    if depth == 0 || out.len() >= MAX_SOURCE_FILES {
+        return;
+    }
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        if out.len() >= MAX_SOURCE_FILES {
+            return;
+        }
+        let path = entry.path();
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        if path.is_dir() {
+            if matches!(
+                name.as_str(),
+                ".wire"
+                    | "node_modules"
+                    | ".git"
+                    | "target"
+                    | "dist"
+                    | "build"
+                    | "__pycache__"
+                    | ".venv"
+                    | "venv"
+                    | "bin"
+                    | "obj"
+            ) {
+                continue;
+            }
+            collect_source_files(root, &path, out, depth - 1);
+        } else if name != ".sample.json" && is_editable_source(&name) {
+            if let Ok(rel) = path.strip_prefix(root) {
+                out.push(rel.to_string_lossy().to_string());
+            }
+        }
+    }
+}
+
+fn is_editable_source(name: &str) -> bool {
+    const EXTS: &[&str] = &[
+        "py",
+        "js",
+        "ts",
+        "tsx",
+        "jsx",
+        "mjs",
+        "cs",
+        "java",
+        "kt",
+        "go",
+        "rb",
+        "php",
+        "json",
+        "yaml",
+        "yml",
+        "toml",
+        "xml",
+        "csproj",
+        "gradle",
+        "properties",
+        "txt",
+        "md",
+    ];
+    name.rsplit_once('.')
+        .map(|(_, ext)| EXTS.contains(&ext))
+        .unwrap_or(false)
 }

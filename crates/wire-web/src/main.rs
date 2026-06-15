@@ -107,6 +107,9 @@ fn api_router(state: SharedState) -> Router<SharedState> {
             post(commands::toggle_default_template),
         )
         .route("/run_chain", post(commands::run_chain))
+        .route("/list_source_files", post(commands::list_source_files))
+        .route("/read_source_file", post(commands::read_source_file))
+        .route("/save_source_file", post(commands::save_source_file))
         .layer(from_fn_with_state(state, session::attach_session))
 }
 
@@ -208,6 +211,72 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         assert!(body_string(resp).await.contains("escapes"));
+    }
+
+    #[tokio::test]
+    async fn source_file_traversal_is_rejected() {
+        let app = build_app(test_state(), "ui/dist");
+        let resp = app
+            .oneshot(post(
+                "/api/read_source_file",
+                None,
+                r#"{"sourceDir":"projects/fastapi-api","path":"../../../../etc/passwd"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert!(body_string(resp).await.contains("escapes"));
+    }
+
+    #[tokio::test]
+    async fn source_read_cannot_escape_into_another_project() {
+        // Stays inside the sandbox but reaches a different sample — must be
+        // rejected by the source-dir confinement, not just the sandbox check.
+        let app = build_app(test_state(), "ui/dist");
+        let resp = app
+            .oneshot(post(
+                "/api/read_source_file",
+                Some("crossproj"),
+                r#"{"sourceDir":"projects/fastapi-api","path":"../express-api/package.json"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert!(body_string(resp).await.contains("escapes the project"));
+    }
+
+    #[tokio::test]
+    async fn lists_and_reads_seeded_source_files() {
+        let app = build_app(test_state(), "ui/dist");
+        let listed = body_string(
+            app.clone()
+                .oneshot(post(
+                    "/api/list_source_files",
+                    Some("srctest"),
+                    r#"{"sourceDir":"projects/fastapi-api"}"#,
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(listed.contains("routers/products.py"), "files: {listed}");
+        // The playground's own metadata file must not be exposed as source.
+        assert!(
+            !listed.contains(".sample.json"),
+            "leaked manifest: {listed}"
+        );
+
+        let content = body_string(
+            app.oneshot(post(
+                "/api/read_source_file",
+                Some("srctest"),
+                r#"{"sourceDir":"projects/fastapi-api","path":"routers/products.py"}"#,
+            ))
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert!(content.contains("APIRouter"), "content: {content}");
     }
 
     #[tokio::test]

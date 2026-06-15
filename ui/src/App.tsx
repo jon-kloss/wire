@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
-import { invoke, open } from "./api/invoke";
+import { invoke, open, isWebPlayground } from "./api/invoke";
 import { SampleGallery } from "./SampleGallery";
+import { SourceEditor } from "./SourceEditor";
 import type {
   IpcResponse,
   IpcCollectionInfo,
@@ -200,6 +201,7 @@ function App() {
   const [driftReport, setDriftReport] = useState<DriftReport | null>(null);
   const [driftLoading, setDriftLoading] = useState(false);
   const [driftProjectDir, setDriftProjectDir] = useState("");
+  const [sourceEditorDir, setSourceEditorDir] = useState<string | null>(null);
 
   // Chain state
   const [chainSteps, setChainSteps] = useState<ChainStepDef[]>([]);
@@ -866,6 +868,16 @@ function App() {
   return (
     <div className="app">
       <SampleGallery />
+      {sourceEditorDir && (
+        <SourceEditor
+          sourceDir={sourceEditorDir}
+          wireDir={
+            collections.find((c) => c.info.source_dir === sourceEditorDir)?.path ?? null
+          }
+          onClose={() => setSourceEditorDir(null)}
+          onDrift={(report) => setDriftReport(report)}
+        />
+      )}
       {/* Left Panel: Sidebar */}
       <aside className="sidebar">
         <button className="new-request-btn" onClick={handleNewRequest}>
@@ -1449,6 +1461,16 @@ function App() {
               >
                 {driftLoading ? "Checking..." : "Check Drift"}
               </button>
+              {isWebPlayground() && (
+                <button
+                  className="drift-check-btn"
+                  disabled={!driftProjectDir}
+                  title="Edit the project's source and re-check drift"
+                  onClick={() => setSourceEditorDir(driftProjectDir)}
+                >
+                  Edit Source
+                </button>
+              )}
             </div>
             {collections.filter((c) => c.info.source_dir).length === 0 && (
               <p className="placeholder">No collections from codebase scan</p>
