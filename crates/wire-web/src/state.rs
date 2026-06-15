@@ -55,13 +55,18 @@ impl AppState {
                 expired.push(sid.clone());
             }
         }
-        let mut demo_pets = self.demo_pets.lock().await;
         for sid in &expired {
             if let Some(session) = sessions.remove(sid) {
                 let _ = std::fs::remove_dir_all(&session.sandbox);
             }
-            demo_pets.remove(sid);
         }
+        // Drop demo stores for swept sessions and any orphaned ids never backed
+        // by a live session (e.g. direct hits to /demo/s/<id> with a bogus id),
+        // which would otherwise grow unbounded.
+        self.demo_pets
+            .lock()
+            .await
+            .retain(|sid, _| sessions.contains_key(sid));
         expired.len()
     }
 }

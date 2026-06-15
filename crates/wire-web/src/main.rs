@@ -215,6 +215,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sweep_drops_orphan_demo_stores() {
+        let state = test_state();
+        let app = build_app(state.clone(), "ui/dist");
+        // Allocate a demo store for a sid that has no backing session.
+        app.oneshot(get("/demo/s/orphan/pets")).await.unwrap();
+        assert!(state.demo_pets.lock().await.contains_key("orphan"));
+        // The sweep should drop it (it isn't tied to a live session).
+        state.sweep_expired_sessions().await;
+        assert!(!state.demo_pets.lock().await.contains_key("orphan"));
+    }
+
+    #[tokio::test]
     async fn external_url_is_blocked_by_egress() {
         let app = build_app(test_state(), "ui/dist");
         let resp = app
