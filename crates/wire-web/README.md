@@ -79,6 +79,20 @@ certificate is obtained on first request and persisted in a named volume. The
 proxy also sends an HSTS header. To get Let's Encrypt renewal notices, set
 `WIRE_WEB_ACME_EMAIL` and enable the email block in `deploy/Caddyfile`.
 
+## Deploying to Railway
+
+[Railway](https://railway.com) terminates TLS at its edge and injects a `PORT`,
+so no reverse proxy is needed. The repo-root `railway.json` points Railway at
+`crates/wire-web/Dockerfile`, and the server binds `0.0.0.0:$PORT` automatically.
+
+1. Create a Railway project from this repo (it picks up `railway.json` and
+   builds the Dockerfile).
+2. In the service's **Variables**, set `WIRE_WEB_SECURE_COOKIE=1` (Railway
+   serves over HTTPS, so the session cookie should be `Secure`).
+3. Generate a domain under **Settings → Networking**.
+
+Or from the CLI: `railway up` from the repo root.
+
 ## Configuration
 
 | Env var             | Default              | Purpose                                            |
