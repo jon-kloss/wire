@@ -29,5 +29,8 @@ COPY --from=server /app/target/release/wire-web /usr/local/bin/wire-web
 COPY --from=ui /app/ui/dist ./ui/dist
 ENV WIRE_WEB_ADDR=0.0.0.0:8787 \
     WIRE_WEB_UI_DIR=/app/ui/dist
+# Run unprivileged: a container escape shouldn't land as root.
+RUN useradd --system --uid 10001 wire
+USER wire
 EXPOSE 8787
 CMD ["wire-web"]

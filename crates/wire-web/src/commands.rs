@@ -786,14 +786,23 @@ pub async fn save_source_file(
     Ok(Json(()))
 }
 
-/// Resolve `<source_dir>/<path>` within the sandbox, rejecting escapes.
+/// Resolve `<source_dir>/<path>`, confining the result to `source_dir` (not just
+/// the sandbox) so the source editor can't read or clobber files outside the
+/// project being edited — e.g. another sample or the generated `.wire`.
 fn source_file_path(
     session: &SessionState,
     source_dir: &str,
     rel: &str,
 ) -> AppResult<std::path::PathBuf> {
     let root = sandbox_path(session, source_dir)?;
-    sandbox_path(session, &root.join(rel).to_string_lossy())
+    let resolved = sandbox_path(session, &root.join(rel).to_string_lossy())?;
+    if resolved.starts_with(&root) {
+        Ok(resolved)
+    } else {
+        Err(AppError(format!(
+            "Path escapes the project directory: {rel}"
+        )))
+    }
 }
 
 /// Recursively collect editable text source files, skipping build artefacts,

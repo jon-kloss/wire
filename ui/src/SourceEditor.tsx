@@ -35,6 +35,9 @@ function languageFor(path: string): string {
 
 interface Props {
   sourceDir: string;
+  /** wire dir of the collection generated from this source, opened before
+   *  re-checking drift so the check always targets the right project. */
+  wireDir: string | null;
   onClose: () => void;
   onDrift: (report: DriftReport) => void;
 }
@@ -44,7 +47,7 @@ interface Props {
  * a route handler, save it, and re-run drift detection — turning the codebase
  * features into a hands-on demo. Web playground only.
  */
-export function SourceEditor({ sourceDir, onClose, onDrift }: Props) {
+export function SourceEditor({ sourceDir, wireDir, onClose, onDrift }: Props) {
   const [files, setFiles] = useState<string[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [content, setContent] = useState("");
@@ -95,6 +98,9 @@ export function SourceEditor({ sourceDir, onClose, onDrift }: Props) {
   const checkDrift = useCallback(async () => {
     setError(null);
     try {
+      // Ensure the backend has this source's collection open before checking,
+      // rather than relying on whatever the caller happened to leave open.
+      if (wireDir) await invoke("open_collection", { wireDir });
       const report = await invoke<DriftReport>("check_drift");
       const safe = report ?? { items: [], new_count: 0, stale_count: 0, changed_count: 0 };
       onDrift(safe);
@@ -107,7 +113,7 @@ export function SourceEditor({ sourceDir, onClose, onDrift }: Props) {
     } catch (err) {
       setError(typeof err === "string" ? err : String(err));
     }
-  }, [onDrift]);
+  }, [wireDir, onDrift]);
 
   return (
     <div className="source-editor-overlay" onClick={onClose}>
@@ -129,7 +135,11 @@ export function SourceEditor({ sourceDir, onClose, onDrift }: Props) {
               <button
                 key={f}
                 className={`source-file-item ${f === selected ? "selected" : ""}`}
-                onClick={() => loadFile(f)}
+                onClick={() => {
+                  if (f === selected) return;
+                  if (dirty && !window.confirm("Discard unsaved changes?")) return;
+                  loadFile(f);
+                }}
               >
                 {f}
               </button>

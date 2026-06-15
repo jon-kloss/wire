@@ -229,6 +229,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn source_read_cannot_escape_into_another_project() {
+        // Stays inside the sandbox but reaches a different sample — must be
+        // rejected by the source-dir confinement, not just the sandbox check.
+        let app = build_app(test_state(), "ui/dist");
+        let resp = app
+            .oneshot(post(
+                "/api/read_source_file",
+                Some("crossproj"),
+                r#"{"sourceDir":"projects/fastapi-api","path":"../express-api/package.json"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert!(body_string(resp).await.contains("escapes the project"));
+    }
+
+    #[tokio::test]
     async fn lists_and_reads_seeded_source_files() {
         let app = build_app(test_state(), "ui/dist");
         let listed = body_string(

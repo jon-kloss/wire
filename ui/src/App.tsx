@@ -871,6 +871,9 @@ function App() {
       {sourceEditorDir && (
         <SourceEditor
           sourceDir={sourceEditorDir}
+          wireDir={
+            collections.find((c) => c.info.source_dir === sourceEditorDir)?.path ?? null
+          }
           onClose={() => setSourceEditorDir(null)}
           onDrift={(report) => setDriftReport(report)}
         />
