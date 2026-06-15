@@ -27,14 +27,17 @@ async fn main() {
         )
         .init();
 
-    let addr = std::env::var("WIRE_WEB_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".to_string());
+    let addr = resolve_bind_addr();
     let port = addr.rsplit(':').next().unwrap_or("8787").to_string();
     // reqwest runs inside this process, so it always reaches the demo API over
     // the loopback address regardless of the public bind host.
     let demo_base_url = std::env::var("WIRE_WEB_DEMO_URL")
         .unwrap_or_else(|_| format!("http://127.0.0.1:{port}/demo"));
     let ui_dir = std::env::var("WIRE_WEB_UI_DIR").unwrap_or_else(|_| "ui/dist".to_string());
-    let secure_cookies = env_flag("WIRE_WEB_SECURE_COOKIE", false);
+    // Default the Secure cookie on when running on a platform that fronts the
+    // app with HTTPS (Railway), so it's secure by default there; an explicit
+    // WIRE_WEB_SECURE_COOKIE still overrides either way.
+    let secure_cookies = env_flag("WIRE_WEB_SECURE_COOKIE", running_on_railway());
     let session_ttl = Duration::from_secs(env_u64("WIRE_WEB_SESSION_TTL_SECS", 3600));
 
     warn_if_ui_missing(&ui_dir);
@@ -136,6 +139,33 @@ fn warn_if_ui_missing(ui_dir: &str) {
     }
 }
 
+fn resolve_bind_addr() -> String {
+    pick_bind_addr(
+        std::env::var("WIRE_WEB_ADDR").ok(),
+        std::env::var("PORT").ok(),
+    )
+}
+
+/// Choose the address to bind. Precedence: an explicit `WIRE_WEB_ADDR`, then the
+/// platform-provided `PORT` (Railway/Heroku/Render — bind all interfaces so the
+/// platform router can reach it), then a local-development default.
+fn pick_bind_addr(explicit_addr: Option<String>, port: Option<String>) -> String {
+    if let Some(addr) = explicit_addr {
+        return addr;
+    }
+    if let Some(port) = port {
+        return format!("0.0.0.0:{port}");
+    }
+    "127.0.0.1:8787".to_string()
+}
+
+/// Whether we're running inside a Railway deployment, which terminates TLS at
+/// its edge. Railway always sets `RAILWAY_ENVIRONMENT_NAME` in the runtime.
+fn running_on_railway() -> bool {
+    std::env::var_os("RAILWAY_ENVIRONMENT_NAME").is_some()
+        || std::env::var_os("RAILWAY_ENVIRONMENT").is_some()
+}
+
 fn env_flag(key: &str, default: bool) -> bool {
     match std::env::var(key) {
         Ok(v) => matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"),
@@ -224,6 +254,19 @@ mod tests {
         // The sweep should drop it (it isn't tied to a live session).
         state.sweep_expired_sessions().await;
         assert!(!state.demo_pets.lock().await.contains_key("orphan"));
+    }
+
+    #[test]
+    fn bind_addr_precedence() {
+        // Explicit WIRE_WEB_ADDR wins over everything.
+        assert_eq!(
+            pick_bind_addr(Some("127.0.0.1:9000".into()), Some("3000".into())),
+            "127.0.0.1:9000"
+        );
+        // Platform PORT binds all interfaces.
+        assert_eq!(pick_bind_addr(None, Some("3000".into())), "0.0.0.0:3000");
+        // Local-dev default.
+        assert_eq!(pick_bind_addr(None, None), "127.0.0.1:8787");
     }
 
     #[tokio::test]
