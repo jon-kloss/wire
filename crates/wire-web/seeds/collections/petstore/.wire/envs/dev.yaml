@@ -1,0 +1,4 @@
+name: Demo
+variables:
+  base_url: __WIRE_DEMO_BASE__
+  api_token: demo-token-123

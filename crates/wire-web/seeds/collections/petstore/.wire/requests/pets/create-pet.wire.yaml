@@ -1,0 +1,16 @@
+name: Create Pet
+method: POST
+url: "{{base_url}}/pets"
+headers:
+  Content-Type: application/json
+  Authorization: "Bearer {{api_token}}"
+body:
+  type: json
+  content:
+    name: Rex
+    species: dog
+tests:
+  - field: status
+    equals: 201
+  - field: body.name
+    equals: Rex

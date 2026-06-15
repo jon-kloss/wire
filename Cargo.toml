@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/wire-core", "crates/wire-cli", "crates/wire-app"]
+members = ["crates/wire-core", "crates/wire-cli", "crates/wire-app", "crates/wire-web"]
 resolver = "2"
 
 [workspace.package]
