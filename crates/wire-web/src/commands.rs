@@ -52,6 +52,19 @@ fn subdirs(dir: &Path) -> Vec<std::path::PathBuf> {
         .collect()
 }
 
+/// Optional `.sample.json` descriptor shipped alongside a sample project.
+#[derive(serde::Deserialize)]
+struct SampleManifest {
+    label: String,
+    description: String,
+}
+
+/// Read a sample project's `.sample.json` descriptor, if present and valid.
+fn read_sample_manifest(dir: &Path) -> Option<SampleManifest> {
+    let content = std::fs::read_to_string(dir.join(".sample.json")).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
 /// Read the collection's display name from its `wire.yaml`, if present.
 fn collection_name(wire_dir: &Path) -> Option<String> {
     let content = std::fs::read_to_string(wire_dir.join("wire.yaml")).ok()?;
@@ -102,11 +115,21 @@ pub async fn list_samples(Extension(session): Session) -> Json<Vec<SampleInfo>> 
         }
     }
 
-    // Projects: every subdirectory of projects/.
+    // Projects: every subdirectory of projects/. An optional `.sample.json`
+    // descriptor provides a polished label/description; otherwise we fall back
+    // to the directory name.
     for dir in subdirs(&sandbox.join("projects")) {
+        let manifest = read_sample_manifest(&dir);
+        let label = manifest
+            .as_ref()
+            .map(|m| m.label.clone())
+            .unwrap_or_else(|| prettify(&dir));
+        let description = manifest
+            .map(|m| m.description)
+            .unwrap_or_else(|| "A sample codebase — scan it to generate a collection.".to_string());
         samples.push(SampleInfo {
-            label: format!("{} (sample source)", prettify(&dir)),
-            description: "A sample codebase — scan it to generate a collection.".to_string(),
+            label: format!("{label} (sample source)"),
+            description,
             path: dir.to_string_lossy().to_string(),
             kind: "project".to_string(),
         });
