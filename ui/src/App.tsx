@@ -13,6 +13,7 @@ import type {
   Assertion,
   TestResult,
   DriftReport,
+  DriftItem,
   ChainResult,
   ChainStepDef,
 } from "./types";
@@ -22,10 +23,15 @@ import {
   filterTree,
   formatTimeAgo,
   METHOD_COLORS,
+  METHOD_COLOR_FALLBACK,
   statusColor,
   formatBody,
+  formatBytes,
 } from "./utils";
 import { PromptModal } from "./PromptModal";
+import { useAccent } from "./accent";
+import { WireLockup, WireMark, AccentPicker } from "./brand";
+import { defineWireMonacoTheme, WIRE_MONACO_THEME } from "./monacoTheme";
 import "./App.css";
 
 const MonacoEditor = lazy(() => import("@monaco-editor/react"));
@@ -64,6 +70,22 @@ function extractJsonPaths(
   out.push({ path: prefix, value: display.length > 60 ? display.slice(0, 57) + "..." : display });
 }
 
+/** Map a drift category to a display severity (breaking / warning / info). */
+function driftSeverity(category: "new" | "stale" | "changed"): {
+  label: string;
+  cls: string;
+  glyph: string;
+} {
+  if (category === "stale") return { label: "BREAKING", cls: "breaking", glyph: "✗" };
+  if (category === "changed") return { label: "WARNING", cls: "warning", glyph: "~" };
+  return { label: "INFO", cls: "info", glyph: "+" };
+}
+
+/** Stable identity for a drift item (survives re-checks / ignore filtering). */
+function driftKey(item: DriftItem): string {
+  return `${item.category}:${item.method}:${item.route}`;
+}
+
 function TreeItem({
   node,
   depth,
@@ -83,7 +105,7 @@ function TreeItem({
   const isSelected = node.entry?.path === selectedPath;
 
   if (node.entry) {
-    const color = METHOD_COLORS[node.entry.method] ?? "#d4d4d4";
+    const color = METHOD_COLORS[node.entry.method] ?? METHOD_COLOR_FALLBACK;
     return (
       <div
         className={`tree-item tree-request ${isSelected ? "selected" : ""}`}
@@ -136,6 +158,13 @@ function TreeItem({
 
 function App() {
   const urlInputRef = useRef<HTMLInputElement>(null);
+  const filterInputRef = useRef<HTMLInputElement>(null);
+
+  // Accent theming (Ember / Signal / Pulse) — persisted, applied to <html>
+  const { accent, setAccent } = useAccent();
+
+  // Title bar env switcher popover
+  const [envMenuOpen, setEnvMenuOpen] = useState(false);
 
   // Request builder state
   const [method, setMethod] = useState("GET");
@@ -154,7 +183,7 @@ function App() {
   const [currentAssertions, setCurrentAssertions] = useState<Assertion[]>([]);
   const [responseSchema, setResponseSchema] = useState<[string, string][]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [responseTab, setResponseTab] = useState<"body" | "headers">("body");
+  const [responseTab, setResponseTab] = useState<"body" | "headers" | "tests">("body");
 
   // Collection state (supports multiple collections)
   const [collections, setCollections] = useState<
@@ -197,11 +226,30 @@ function App() {
   const activeCollection = collections.find((c) => c.path === activeCollectionPath);
   const activeTemplates = activeCollection?.info.templates ?? [];
 
+  // Breadcrumb segments for the title bar: collection / folder… / request
+  const breadcrumb: string[] = (() => {
+    if (!activeCollection) return [];
+    const segs: string[] = [activeCollection.info.name];
+    if (selectedRequestPath) {
+      const prefix = activeCollection.path + "/requests/";
+      let rel = selectedRequestPath.startsWith(prefix)
+        ? selectedRequestPath.slice(prefix.length)
+        : selectedRequestPath.split("/").pop() ?? "";
+      rel = rel.replace(/\.wire\.yaml$/, "");
+      const parts = rel.split("/");
+      for (let i = 0; i < parts.length - 1; i++) segs.push(parts[i]);
+      segs.push(selectedRequestName ?? parts[parts.length - 1]);
+    }
+    return segs;
+  })();
+
   // Drift state
   const [driftReport, setDriftReport] = useState<DriftReport | null>(null);
   const [driftLoading, setDriftLoading] = useState(false);
   const [driftProjectDir, setDriftProjectDir] = useState("");
   const [sourceEditorDir, setSourceEditorDir] = useState<string | null>(null);
+  const [selectedDriftIdx, setSelectedDriftIdx] = useState<number | null>(null);
+  const [ignoredDrift, setIgnoredDrift] = useState<Set<string>>(new Set());
 
   // Chain state
   const [chainSteps, setChainSteps] = useState<ChainStepDef[]>([]);
@@ -211,6 +259,11 @@ function App() {
 
   // Secret masking state
   const [secretsRevealed, setSecretsRevealed] = useState(false);
+
+  // Scratch mode: show the workspace grid even with no collection open
+  // (entered from the onboarding quick-send / new-request affordances).
+  const [scratchMode, setScratchMode] = useState(false);
+  const [onboardUrl, setOnboardUrl] = useState("");
 
   /** Check if a raw env var value is a secret reference */
   const isSecretValue = (val: string) =>
@@ -277,6 +330,50 @@ function App() {
     },
     []
   );
+
+  /** Select an environment for the active collection and load its vars. */
+  const selectEnv = useCallback(
+    (val: string | null) => {
+      if (!activeCollectionPath) return;
+      const path = activeCollectionPath;
+      setEnvSelectedMap((prev) => ({ ...prev, [path]: val }));
+      if (val) {
+        invoke<Record<string, string>>("get_environment", {
+          wireDir: path,
+          envName: val,
+        })
+          .then((vars) => setEnvVarsMap((prev) => ({ ...prev, [path]: vars })))
+          .catch(() => setEnvVarsMap((prev) => ({ ...prev, [path]: {} })));
+      } else {
+        setEnvVarsMap((prev) => ({ ...prev, [path]: {} }));
+      }
+    },
+    [activeCollectionPath]
+  );
+
+  /** Sync the collection to source (apply all drift) and refresh the sidebar. */
+  const fixDriftAll = useCallback(async () => {
+    setDriftLoading(true);
+    try {
+      const report = await invoke<DriftReport>("fix_drift");
+      setDriftReport(report);
+      setSelectedDriftIdx(null);
+      if (activeCollectionPath) {
+        const info = await invoke<IpcCollectionInfo>("open_collection", {
+          wireDir: activeCollectionPath,
+        });
+        setCollections((prev) =>
+          prev.map((c) =>
+            c.path === activeCollectionPath ? { info, path: c.path } : c
+          )
+        );
+      }
+    } catch (err) {
+      setError(typeof err === "string" ? err : String(err));
+    } finally {
+      setDriftLoading(false);
+    }
+  }, [activeCollectionPath]);
 
   const handleNewRequest = useCallback(() => {
     setMethod("GET");
@@ -687,8 +784,10 @@ function App() {
     []
   );
 
-  const handleSend = async () => {
-    if (!url.trim()) return;
+  const handleSend = async (overrideUrl?: string, overrideMethod?: string) => {
+    const effUrl = overrideUrl ?? url;
+    const effMethod = overrideMethod ?? method;
+    if (!effUrl.trim()) return;
 
     setLoading(true);
     setError(null);
@@ -706,7 +805,7 @@ function App() {
       }
 
       let body: WireBody | null = null;
-      if (bodyText.trim() && ["POST", "PUT", "PATCH"].includes(method)) {
+      if (bodyText.trim() && ["POST", "PUT", "PATCH"].includes(effMethod)) {
         try {
           body = { type: "json", content: JSON.parse(bodyText) };
         } catch {
@@ -723,8 +822,8 @@ function App() {
 
       const request: WireRequest = {
         name: "Quick Request",
-        method,
-        url,
+        method: effMethod,
+        url: effUrl,
         headers,
         params,
         body,
@@ -866,7 +965,7 @@ function App() {
   };
 
   return (
-    <div className="app">
+    <div className="app-shell">
       <SampleGallery />
       {sourceEditorDir && (
         <SourceEditor
@@ -878,6 +977,286 @@ function App() {
           onDrift={(report) => setDriftReport(report)}
         />
       )}
+
+      {/* Title bar */}
+      <header className="titlebar">
+        <WireLockup />
+        <span className="tb-divider" />
+        <nav className="breadcrumb">
+          {breadcrumb.length === 0 ? (
+            <span className="breadcrumb-empty">No collection open</span>
+          ) : (
+            breadcrumb.map((seg, i) => (
+              <span key={i} className="breadcrumb-part">
+                {i > 0 && <span className="breadcrumb-sep">/</span>}
+                <span
+                  className={`breadcrumb-seg ${i === breadcrumb.length - 1 ? "leaf" : ""}`}
+                >
+                  {seg}
+                </span>
+              </span>
+            ))
+          )}
+        </nav>
+        <div className="tb-spacer" />
+        <AccentPicker accent={accent} onPick={setAccent} />
+        {activeCollection && activeCollection.info.environments.length > 0 && (
+          <div className="env-switcher">
+            <button
+              className="env-chip"
+              onClick={() => setEnvMenuOpen((o) => !o)}
+              title="Switch environment"
+            >
+              <span className="env-dot" />
+              <span className="env-chip-name">{activeSelectedEnv ?? "no env"}</span>
+              <span className="env-chip-caret">{"▾"}</span>
+            </button>
+            {envMenuOpen && (
+              <>
+                <div
+                  className="dropdown-backdrop"
+                  onClick={() => setEnvMenuOpen(false)}
+                />
+                <div className="env-menu">
+                  <button
+                    className={`env-menu-item ${!activeSelectedEnv ? "active" : ""}`}
+                    onClick={() => {
+                      selectEnv(null);
+                      setEnvMenuOpen(false);
+                    }}
+                  >
+                    (no env)
+                  </button>
+                  {activeCollection.info.environments.map((env) => (
+                    <button
+                      key={env}
+                      className={`env-menu-item ${activeSelectedEnv === env ? "active" : ""}`}
+                      onClick={() => {
+                        selectEnv(env);
+                        setEnvMenuOpen(false);
+                      }}
+                    >
+                      {env}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        <button
+          className="tb-icon-btn"
+          title="Search requests"
+          onClick={() => {
+            setSidebarTab("collections");
+            setTimeout(() => filterInputRef.current?.focus(), 0);
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <circle cx="11" cy="11" r="7" />
+            <path d="M21 21l-4.3-4.3" />
+          </svg>
+        </button>
+        <button
+          className={`tb-icon-btn ${secretsRevealed ? "active" : ""}`}
+          title={secretsRevealed ? "Hide secret values" : "Reveal secret values"}
+          onClick={() => setSecretsRevealed((v) => !v)}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="4" y="11" width="16" height="10" rx="2" />
+            <path d={secretsRevealed ? "M8 11V7a4 4 0 0 1 7.5-2" : "M8 11V7a4 4 0 0 1 8 0v4"} />
+          </svg>
+        </button>
+      </header>
+
+      {collections.length === 0 && !scratchMode ? (
+      <div className="onboarding">
+        <div className="onboard-grid">
+          <div className="onboard-left">
+            <div className="onboard-lockup">
+              <WireMark size={36} />
+              <span className="onboard-wordmark">
+                W<span className="onboard-i">i</span>re
+              </span>
+              <span className="onboard-version">v0.1</span>
+            </div>
+            <h2 className="onboard-title">Your API, as files you actually own.</h2>
+            <p className="onboard-sub">
+              Every request, test, and environment lives as a{" "}
+              <span className="onboard-code">.wire.yaml</span> file in your repo —
+              versioned, diffable, and readable by humans and agents alike.
+            </p>
+
+            <div className="onboard-quicksend">
+              <span className="onboard-qs-method">GET</span>
+              <input
+                className="onboard-qs-url"
+                type="text"
+                placeholder="https://api.example.com/health"
+                value={onboardUrl}
+                onChange={(e) => setOnboardUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const u = onboardUrl.trim();
+                    if (!u) return;
+                    setScratchMode(true);
+                    setMethod("GET");
+                    setUrl(u);
+                    handleSend(u, "GET");
+                  }
+                }}
+              />
+              <button
+                className="onboard-qs-send"
+                onClick={() => {
+                  const u = onboardUrl.trim();
+                  if (!u) return;
+                  setScratchMode(true);
+                  setMethod("GET");
+                  setUrl(u);
+                  handleSend(u, "GET");
+                }}
+              >
+                Send
+              </button>
+            </div>
+
+            <div className="onboard-cards">
+              <button className="onboard-card" onClick={handleOpenCollection}>
+                <span className="onboard-card-icon">{"\u{1F4C2}"}</span>
+                <span className="onboard-card-text">
+                  <span className="onboard-card-title">Open collection</span>
+                  <span className="onboard-card-sub">
+                    Load an existing <code>.wire/</code> directory
+                  </span>
+                </span>
+                <span className="onboard-card-kbd">{"⌘O"}</span>
+              </button>
+              <button
+                className="onboard-card"
+                onClick={handleImportFromCodebase}
+              >
+                <span className="onboard-card-icon">{"⚡"}</span>
+                <span className="onboard-card-text">
+                  <span className="onboard-card-title">Generate from codebase</span>
+                  <span className="onboard-card-sub">
+                    Scan source for endpoints
+                  </span>
+                </span>
+                <span className="onboard-card-kbd">{"⌘G"}</span>
+              </button>
+              <button className="onboard-card" onClick={handleNewCollection}>
+                <span className="onboard-card-icon">{"➕"}</span>
+                <span className="onboard-card-text">
+                  <span className="onboard-card-title">New collection</span>
+                  <span className="onboard-card-sub">Start from scratch</span>
+                </span>
+                <span className="onboard-card-kbd">{"⌘N"}</span>
+              </button>
+            </div>
+
+            {history.length > 0 && (
+              <div className="onboard-recent">
+                <span className="onboard-recent-label">RECENT</span>
+                <div className="onboard-recent-chips">
+                  {history.slice(0, 4).map((h, i) => (
+                    <button
+                      key={`${h.timestamp}-${i}`}
+                      className="onboard-recent-chip"
+                      title={h.url}
+                      onClick={() => {
+                        setScratchMode(true);
+                        setMethod(h.method);
+                        setUrl(h.url);
+                      }}
+                    >
+                      <span
+                        className="method-badge"
+                        style={{
+                          color:
+                            METHOD_COLORS[h.method] ?? METHOD_COLOR_FALLBACK,
+                        }}
+                      >
+                        {h.method}
+                      </span>
+                      <span className="onboard-recent-name">
+                        {h.name || h.url}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="onboard-claude">
+              <span className="onboard-claude-label">WORKS WITH CLAUDE CODE</span>
+              <code className="onboard-claude-cmd">
+                $ wire install-claude-skill
+              </code>
+            </div>
+          </div>
+
+          <div className="onboard-right">
+            <div className="onboard-yaml-card">
+              <div className="onboard-yaml-head">
+                <span className="onboard-yaml-dot" />
+                <span className="onboard-yaml-path">
+                  .wire/requests/users/<span className="accent">create.wire.yaml</span>
+                </span>
+              </div>
+              <pre className="onboard-yaml">
+                <span className="yk">name</span>
+                <span className="yp">:</span> <span className="ys">Create user</span>
+                {"\n"}
+                <span className="yk">method</span>
+                <span className="yp">:</span> <span className="ys">POST</span>
+                {"\n"}
+                <span className="yk">url</span>
+                <span className="yp">:</span>{" "}
+                <span className="yv">{"{{baseUrl}}"}</span>
+                <span className="ys">/users</span>
+                {"\n"}
+                <span className="yk">headers</span>
+                <span className="yp">:</span>
+                {"\n"}
+                {"  "}
+                <span className="yk">Content-Type</span>
+                <span className="yp">:</span>{" "}
+                <span className="ys">application/json</span>
+                {"\n"}
+                <span className="yk">body</span>
+                <span className="yp">:</span>
+                {"\n"}
+                {"  "}
+                <span className="yk">name</span>
+                <span className="yp">:</span> <span className="ys">Ada Lovelace</span>
+                {"\n"}
+                {"  "}
+                <span className="yk">email</span>
+                <span className="yp">:</span>{" "}
+                <span className="ys">ada@example.com</span>
+                {"\n"}
+                <span className="yk">tests</span>
+                <span className="yp">:</span>
+                {"\n"}
+                {"  - "}
+                <span className="yk">field</span>
+                <span className="yp">:</span> <span className="ys">status</span>
+                {"\n"}
+                {"    "}
+                <span className="yk">equals</span>
+                <span className="yp">:</span> <span className="yn">201</span>
+                {"\n"}
+              </pre>
+              <div className="onboard-yaml-caption">
+                What you see in the GUI is exactly what lives in your repo.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      ) : (
+      <div className="app">
       {/* Left Panel: Sidebar */}
       <aside className="sidebar">
         <button className="new-request-btn" onClick={handleNewRequest}>
@@ -918,6 +1297,7 @@ function App() {
           <div className="sidebar-content">
             <div className="sidebar-controls">
               <input
+                ref={filterInputRef}
                 className="filter-input"
                 type="text"
                 placeholder="Filter collections..."
@@ -1375,7 +1755,7 @@ function App() {
                 <p className="placeholder">No activity yet</p>
               )}
               {history.map((entry, i) => {
-                const color = METHOD_COLORS[entry.method] ?? "#d4d4d4";
+                const color = METHOD_COLORS[entry.method] ?? METHOD_COLOR_FALLBACK;
                 const truncatedUrl =
                   entry.url.length > 40
                     ? entry.url.slice(0, 40) + "\u2026"
@@ -1479,71 +1859,183 @@ function App() {
               <div className="drift-no-drift">No drift detected</div>
             )}
             {driftReport && driftReport.items.length > 0 && (
-              <div className="drift-results">
-                <div className="drift-summary">
-                  {driftReport.new_count > 0 && (
-                    <span className="drift-badge drift-new">+{driftReport.new_count} new</span>
-                  )}
-                  {driftReport.stale_count > 0 && (
-                    <span className="drift-badge drift-stale">-{driftReport.stale_count} stale</span>
-                  )}
-                  {driftReport.changed_count > 0 && (
-                    <span className="drift-badge drift-changed">~{driftReport.changed_count} changed</span>
-                  )}
-                  <button
-                    className="drift-sync-btn"
-                    disabled={driftLoading}
-                    onClick={async () => {
-                      setDriftLoading(true);
-                      try {
-                        const report = await invoke<DriftReport>("fix_drift");
-                        setDriftReport(report);
-                        // Refresh collection sidebar
-                        if (activeCollectionPath) {
-                          const info = await invoke<IpcCollectionInfo>("open_collection", {
-                            wireDir: activeCollectionPath,
-                          });
-                          setCollections((prev) =>
-                            prev.map((c) =>
-                              c.path === activeCollectionPath ? { info, path: c.path } : c
-                            )
-                          );
-                        }
-                      } catch (err) {
-                        setError(typeof err === "string" ? err : String(err));
-                      } finally {
-                        setDriftLoading(false);
-                      }
-                    }}
-                  >
-                    {driftLoading ? "Syncing..." : "Sync All"}
-                  </button>
-                </div>
-                {driftReport.items.map((item, i) => (
-                  <div key={i} className={`drift-item drift-${item.category}`}>
-                    <div className="drift-item-header">
-                      <span className={`drift-category drift-cat-${item.category}`}>
-                        {item.category === "new" ? "+" : item.category === "stale" ? "-" : "~"}
-                      </span>
-                      <span className="method-badge" style={{
-                        color: item.method === "GET" ? "#4ec9b0" : item.method === "POST" ? "#dcdcaa" : item.method === "DELETE" ? "#f44747" : "#569cd6"
-                      }}>
-                        {item.method}
-                      </span>
-                      <span className="drift-route">{item.route}</span>
-                    </div>
-                    <div className="drift-item-name">{item.name}</div>
-                    {(item.changes ?? []).map((c, j) => (
-                      <div key={j} className="drift-change">{c}</div>
-                    ))}
-                  </div>
-                ))}
+              <div className="drift-sidebar-summary">
+                {driftReport.stale_count > 0 && (
+                  <span className="drift-mini breaking">
+                    {driftReport.stale_count} breaking
+                  </span>
+                )}
+                {driftReport.changed_count > 0 && (
+                  <span className="drift-mini warning">
+                    {driftReport.changed_count} changed
+                  </span>
+                )}
+                {driftReport.new_count > 0 && (
+                  <span className="drift-mini info">
+                    {driftReport.new_count} new
+                  </span>
+                )}
+                <span className="drift-sidebar-hint">shown in panel →</span>
               </div>
             )}
           </div>
         )}
       </aside>
 
+      {sidebarTab === "drift" ? (
+        <section className="driftview">
+          {!driftReport || driftReport.items.length === 0 ? (
+            <div className="driftview-empty">
+              <p className="placeholder">
+                {driftReport
+                  ? "No drift detected — source and collection are in sync."
+                  : "Select a collection in the sidebar and run Check Drift to compare source against your .wire collection."}
+              </p>
+            </div>
+          ) : (
+            (() => {
+              const items = driftReport.items.filter(
+                (it) => !ignoredDrift.has(driftKey(it))
+              );
+              if (items.length === 0) {
+                return (
+                  <div className="driftview-empty">
+                    <p className="placeholder">All drift ignored.</p>
+                  </div>
+                );
+              }
+              const selIdx =
+                selectedDriftIdx != null && selectedDriftIdx < items.length
+                  ? selectedDriftIdx
+                  : 0;
+              const sel = items[selIdx];
+              const selSev = driftSeverity(sel.category);
+              return (
+                <>
+                  <div className="driftview-strip">
+                    <span className="drift-sev-pill breaking">
+                      BREAKING <b>{driftReport.stale_count}</b>
+                    </span>
+                    <span className="drift-sev-pill warning">
+                      WARNING <b>{driftReport.changed_count}</b>
+                    </span>
+                    <span className="drift-sev-pill info">
+                      INFO <b>{driftReport.new_count}</b>
+                    </span>
+                    <span className="driftview-meta">
+                      vs baseline {"·"} {items.length} change
+                      {items.length !== 1 ? "s" : ""}
+                    </span>
+                    <div className="tb-spacer" />
+                    <button
+                      className="drift-sync-main"
+                      disabled={driftLoading}
+                      onClick={fixDriftAll}
+                    >
+                      {driftLoading ? "Syncing…" : "Sync collection"}
+                    </button>
+                  </div>
+                  <div className="driftview-cols">
+                    <div className="driftview-list">
+                      {items.map((item, i) => {
+                        const sev = driftSeverity(item.category);
+                        return (
+                          <div
+                            key={driftKey(item)}
+                            className={`driftview-item ${sev.cls} ${i === selIdx ? "selected" : ""}`}
+                            onClick={() => setSelectedDriftIdx(i)}
+                          >
+                            <span className={`driftview-glyph ${sev.cls}`}>
+                              {sev.glyph}
+                            </span>
+                            <span
+                              className="method-badge"
+                              style={{
+                                color:
+                                  METHOD_COLORS[item.method] ??
+                                  METHOD_COLOR_FALLBACK,
+                              }}
+                            >
+                              {item.method}
+                            </span>
+                            <span className="driftview-route">{item.route}</span>
+                            <span className="driftview-itemname">
+                              {item.name}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="driftview-detail">
+                      <div className={`driftview-detail-sev ${selSev.cls}`}>
+                        {selSev.label}
+                      </div>
+                      <div className="driftview-detail-route">
+                        <span
+                          className="method-badge"
+                          style={{
+                            color:
+                              METHOD_COLORS[sel.method] ?? METHOD_COLOR_FALLBACK,
+                          }}
+                        >
+                          {sel.method}
+                        </span>
+                        <span className="driftview-detail-path">
+                          {sel.route}
+                        </span>
+                      </div>
+                      <div className="driftview-detail-name">{sel.name}</div>
+                      {sel.changes && sel.changes.length > 0 && (
+                        <div className="driftview-changes">
+                          {sel.changes.map((c, j) => (
+                            <div
+                              key={j}
+                              className={`driftview-change ${selSev.cls}`}
+                            >
+                              {c}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {sel.request_path && (
+                        <div className="driftview-affects">
+                          <span className="driftview-affects-label">
+                            AFFECTS
+                          </span>
+                          <code className="driftview-affects-file">
+                            {sel.request_path}
+                          </code>
+                        </div>
+                      )}
+                      <div className="driftview-actions">
+                        <button
+                          className="drift-sync-main"
+                          disabled={driftLoading}
+                          onClick={fixDriftAll}
+                        >
+                          Sync collection
+                        </button>
+                        <button
+                          className="drift-ignore-btn"
+                          onClick={() => {
+                            setIgnoredDrift((prev) =>
+                              new Set(prev).add(driftKey(sel))
+                            );
+                            setSelectedDriftIdx(null);
+                          }}
+                        >
+                          Ignore
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              );
+            })()
+          )}
+        </section>
+      ) : (
+        <>
       {/* Center Panel: Request Builder */}
       <main className="request-builder">
         {isEditingTemplate ? (
@@ -1611,6 +2103,7 @@ function App() {
         <div className="url-bar">
           <select
             className="method-select"
+            style={{ color: METHOD_COLORS[method] ?? METHOD_COLOR_FALLBACK }}
             value={method}
             onChange={(e) => setMethod(e.target.value)}
           >
@@ -1659,7 +2152,7 @@ function App() {
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
             />
           </div>
-          <button className="send-btn" onClick={handleSend} disabled={loading || chainLoading}>
+          <button className="send-btn" onClick={() => handleSend()} disabled={loading || chainLoading}>
             {loading ? "Sending..." : "Send"}
           </button>
           {chainSteps.length > 0 && (
@@ -1905,7 +2398,8 @@ function App() {
                 <MonacoEditor
                   height="100%"
                   defaultLanguage="json"
-                  theme="vs-dark"
+                  theme={WIRE_MONACO_THEME}
+                  beforeMount={defineWireMonacoTheme}
                   value={bodyText}
                   onChange={(value) => setBodyText(value ?? "")}
                   options={{
@@ -1913,16 +2407,20 @@ function App() {
                     lineNumbers: "on",
                     wordWrap: "on",
                     scrollBeyondLastLine: false,
-                    fontSize: 13,
+                    fontSize: 12.5,
+                    lineHeight: 1.85,
                     fontFamily:
-                      '"Cascadia Code", "Fira Code", "Consolas", monospace',
+                      '"JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas", monospace',
+                    padding: { top: 12, bottom: 12 },
+                    renderLineHighlight: "all",
                     automaticLayout: true,
                   }}
                 />
               </Suspense>
             )}
             {activeTab === "tests" && (
-              <div className="test-results-panel">
+              <div className="test-results-panel tests-2col">
+                <div className="tests-left">
                 <div className="test-editor">
                   <h3 className="test-editor-title">Test Assertions</h3>
                   {currentAssertions.map((assertion, i) => {
@@ -2106,15 +2604,109 @@ function App() {
                 {testResults.length > 0 && (
                   <div className="test-results-summary-bar">
                     <span className="test-pass-count">
-                      {testResults.filter((r) => r.passed).length} passed
+                      ✓ {testResults.filter((r) => r.passed).length} passed
                     </span>
                     {testResults.some((r) => !r.passed) && (
                       <span className="test-fail-count">
-                        {testResults.filter((r) => !r.passed).length} failed
+                        ✗ {testResults.filter((r) => !r.passed).length} failed
                       </span>
                     )}
+                    {response && (
+                      <span className="test-summary-time">
+                        {response.elapsed_ms} ms
+                      </span>
+                    )}
+                    <span className="test-summary-exit">
+                      exit code {testResults.every((r) => r.passed) ? 0 : 1}
+                    </span>
                   </div>
                 )}
+                </div>
+
+                <div className="tests-right">
+                  {(() => {
+                    const snapName =
+                      (selectedRequestName ?? "request")
+                        .replace(/\s+/g, "-")
+                        .toLowerCase();
+                    return (
+                      <div className="snap-head">
+                        <span className="snap-dot" />
+                        <span className="snap-path">
+                          .wire/snapshots/
+                          <span className="accent">{snapName}.json</span>
+                        </span>
+                      </div>
+                    );
+                  })()}
+                  {!response ? (
+                    <div className="snap-empty">
+                      Send a request to capture a response snapshot. Save with{" "}
+                      <code>wire send --snapshot</code> to detect future
+                      regressions.
+                    </div>
+                  ) : responseSchema.length > 0 ? (
+                    (() => {
+                      const respKeys = (() => {
+                        try {
+                          const b = JSON.parse(response.body);
+                          return b && typeof b === "object" && !Array.isArray(b)
+                            ? Object.keys(b)
+                            : [];
+                        } catch {
+                          return [];
+                        }
+                      })();
+                      const lower = (s: string) => s.toLowerCase();
+                      const respLower = respKeys.map(lower);
+                      const schemaNames = responseSchema.map(([n]) => n);
+                      const schemaLower = schemaNames.map(lower);
+                      const removed = schemaNames.filter(
+                        (n) => !respLower.includes(lower(n))
+                      );
+                      const added = respKeys.filter(
+                        (k) => !schemaLower.includes(lower(k))
+                      );
+                      return (
+                        <>
+                          <div className="snap-diff">
+                            {schemaNames.map((n) => {
+                              const present = respLower.includes(lower(n));
+                              return (
+                                <div
+                                  key={`s-${n}`}
+                                  className={`snap-line ${present ? "same" : "removed"}`}
+                                >
+                                  <span className="snap-glyph">
+                                    {present ? " " : "−"}
+                                  </span>
+                                  <span className="snap-field">{n}</span>
+                                </div>
+                              );
+                            })}
+                            {added.map((k) => (
+                              <div key={`a-${k}`} className="snap-line added">
+                                <span className="snap-glyph">+</span>
+                                <span className="snap-field">{k}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="snap-foot">
+                            <span className="snap-foot-added">+{added.length}</span>
+                            <span className="snap-foot-removed">
+                              −{removed.length}
+                            </span>
+                            <span className="snap-foot-label">
+                              schema vs response
+                            </span>
+                          </div>
+                        </>
+                      );
+                    })()
+                  ) : (
+                    <pre className="snap-body">{formatBody(response.body)}</pre>
+                  )}
+                </div>
               </div>
             )}
             {activeTab === "pre-run" && (
@@ -2128,19 +2720,35 @@ function App() {
 
       {/* Right Panel: Response Viewer */}
       <section className="response-viewer">
-        <div className="panel-header">
-          <h2>Response</h2>
-          {response && (
-            <div className="response-meta">
+        <div className="response-header">
+          {response ? (
+            <>
               <span
-                className="status-badge"
+                className="status-pill"
                 style={{ color: statusColor(response.status) }}
               >
+                <span
+                  className="status-dot"
+                  style={{ background: statusColor(response.status) }}
+                />
                 {response.status} {response.status_text}
               </span>
-              <span className="meta-item">{response.elapsed_ms}ms</span>
-              <span className="meta-item">{response.size_bytes}B</span>
-            </div>
+              <span className="response-metric">{response.elapsed_ms} ms</span>
+              <span className="response-metric-sep">·</span>
+              <span className="response-metric">
+                {formatBytes(response.size_bytes)}
+              </span>
+              <div className="tb-spacer" />
+              <button
+                className="response-action"
+                title="Copy response body"
+                onClick={() => navigator.clipboard?.writeText(response.body)}
+              >
+                Copy
+              </button>
+            </>
+          ) : (
+            <span className="response-header-title">Response</span>
           )}
         </div>
 
@@ -2164,15 +2772,59 @@ function App() {
                 onClick={() => setResponseTab("headers")}
               >
                 Headers
+                <span className="tab-count">
+                  {Object.keys(response.headers).length}
+                </span>
               </button>
-            </div>
-            <div className="panel-body">
-              {responseTab === "body" && (
-                <pre className="response-body">
-                  {formatBody(response.body)}
-                </pre>
+              {testResults.length > 0 && (
+                <button
+                  className={`tab ${responseTab === "tests" ? "active" : ""}`}
+                  onClick={() => setResponseTab("tests")}
+                >
+                  Tests
+                  <span
+                    className={`tab-badge ${testResults.every((r) => r.passed) ? "tab-badge-pass" : "tab-badge-fail"}`}
+                  >
+                    {testResults.filter((r) => r.passed).length}/
+                    {testResults.length}
+                  </span>
+                </button>
               )}
-              {responseTab === "headers" && (
+            </div>
+            {responseTab === "body" ? (
+              <div className="response-body-wrap">
+                <Suspense
+                  fallback={
+                    <pre className="response-body">
+                      {formatBody(response.body)}
+                    </pre>
+                  }
+                >
+                  <MonacoEditor
+                    height="100%"
+                    defaultLanguage="json"
+                    theme={WIRE_MONACO_THEME}
+                    beforeMount={defineWireMonacoTheme}
+                    value={formatBody(response.body)}
+                    options={{
+                      readOnly: true,
+                      domReadOnly: true,
+                      minimap: { enabled: false },
+                      lineNumbers: "on",
+                      wordWrap: "on",
+                      scrollBeyondLastLine: false,
+                      fontSize: 12.5,
+                      lineHeight: 1.85,
+                      fontFamily:
+                        '"JetBrains Mono", "Cascadia Code", "Fira Code", monospace',
+                      padding: { top: 12, bottom: 12 },
+                      automaticLayout: true,
+                    }}
+                  />
+                </Suspense>
+              </div>
+            ) : responseTab === "headers" ? (
+              <div className="panel-body">
                 <div className="response-headers">
                   {Object.entries(response.headers).map(([key, value]) => (
                     <div key={key} className="header-row">
@@ -2181,8 +2833,50 @@ function App() {
                     </div>
                   ))}
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="panel-body">
+                <div className="response-tests">
+                  {testResults.map((r, i) => (
+                    <div
+                      key={i}
+                      className={`response-test-row ${r.passed ? "passed" : "failed"}`}
+                    >
+                      <span className="test-result-icon">
+                        {r.passed ? "✓" : "✗"}
+                      </span>
+                      <span className="response-test-field">{r.field}</span>
+                      <span className="response-test-op">{r.operator}</span>
+                      <span className="response-test-exp">{r.expected}</span>
+                      {!r.passed && (
+                        <span className="test-result-actual">
+                          got {r.actual}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {testResults.length > 0 && (
+              <div
+                className={`response-pass-bar ${testResults.every((r) => r.passed) ? "ok" : "fail"}`}
+              >
+                <span className="pass-bar-icon">
+                  {testResults.every((r) => r.passed) ? "✓" : "✗"}
+                </span>
+                <span className="pass-bar-count">
+                  {testResults.filter((r) => r.passed).length} /{" "}
+                  {testResults.length} passed
+                </span>
+                <span className="pass-bar-fields">
+                  {testResults
+                    .map((r) => r.field)
+                    .slice(0, 6)
+                    .join("  ·  ")}
+                </span>
+              </div>
+            )}
           </>
         )}
 
@@ -2193,131 +2887,222 @@ function App() {
         )}
 
         {chainSteps.length > 0 && !chainResult && !chainLoading && (
-          <div className="chain-preview">
-            <div className="chain-preview-header">Chain Steps</div>
-            {chainSteps.map((step, i) => (
-              <div key={i} className="chain-preview-step">
-                <span className="chain-preview-num">{i + 1}</span>
-                <span className="chain-preview-run">{step.run}</span>
-                {step.extract && Object.keys(step.extract).length > 0 && (
-                  <span className="chain-preview-extract">
-                    {"\u2192"} {Object.keys(step.extract).join(", ")}
-                  </span>
-                )}
-              </div>
-            ))}
+          <div className="wirechain">
+            <div className="wirechain-head">
+              <span className="wirechain-title">
+                Chain {"\u00b7"} {chainSteps.length} step
+                {chainSteps.length !== 1 ? "s" : ""}
+              </span>
+              <div className="tb-spacer" />
+              <button
+                className="wirechain-run"
+                onClick={handleRunChain}
+                disabled={loading || chainLoading}
+              >
+                Run Chain
+              </button>
+            </div>
+            <div className="wirechain-flow">
+              {chainSteps.map((step, i) => {
+                const last = i === chainSteps.length - 1;
+                const name =
+                  step.run.split("/").pop()?.replace(/\.wire\.yaml$/, "") ??
+                  step.run;
+                return (
+                  <div key={i} className="wirechain-row">
+                    <div className="wirechain-rail">
+                      <span className="wirechain-node">{i + 1}</span>
+                      {!last && <span className="wirechain-line" />}
+                    </div>
+                    <div className="wirechain-card">
+                      <div className="wirechain-card-head">
+                        <span className="wirechain-name">{name}</span>
+                        <span className="wirechain-path">{step.run}</span>
+                      </div>
+                      {step.extract && Object.keys(step.extract).length > 0 && (
+                        <div className="wirechain-band">
+                          <span className="wirechain-band-label">EXTRACTS</span>
+                          {Object.entries(step.extract).map(([k, v]) => (
+                            <span key={k} className="wirechain-chip extract">
+                              {k} = {v}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
         {chainResult && (
-          <div className="chain-results">
-            <div className="chain-results-header">
-              <span className={`chain-status ${chainResult.success ? "chain-success" : "chain-failure"}`}>
-                {chainResult.success ? "\u2713" : "\u2717"}
+          <div className="wirechain">
+            <div className="wirechain-head">
+              <span
+                className={`wirechain-status ${chainResult.success ? "ok" : "fail"}`}
+              >
+                {chainResult.success ? "✓" : "✗"}
               </span>
-              <span className="chain-summary">
-                {chainResult.steps.length} step{chainResult.steps.length !== 1 ? "s" : ""}{" "}
-                — {chainResult.total_elapsed_ms}ms
+              <span className="wirechain-title">
+                {chainResult.steps.length} step
+                {chainResult.steps.length !== 1 ? "s" : ""} {"·"}{" "}
+                {chainResult.success ? "all passed" : "failed"} {"·"}{" "}
+                {chainResult.total_elapsed_ms} ms
               </span>
+              <div className="tb-spacer" />
+              <button
+                className="wirechain-run"
+                onClick={handleRunChain}
+                disabled={loading || chainLoading}
+              >
+                {chainLoading ? "Running…" : "Run Chain"}
+              </button>
             </div>
-            {chainResult.steps.map((step) => {
-              const isExpanded = expandedChainSteps.has(step.step_index);
-              return (
-              <div key={step.step_index} className={`chain-step ${step.passed ? "chain-step-pass" : "chain-step-fail"}`}>
-                <div
-                  className="chain-step-header"
-                  onClick={() => {
-                    setExpandedChainSteps((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(step.step_index)) next.delete(step.step_index);
-                      else next.add(step.step_index);
-                      return next;
-                    });
-                  }}
-                  style={{ cursor: "pointer" }}
-                >
-                  <span className="chain-step-toggle">{isExpanded ? "\u25BE" : "\u25B8"}</span>
-                  <span className={`chain-step-icon ${step.passed ? "pass" : "fail"}`}>
-                    {step.passed ? "\u2713" : "\u2717"}
-                  </span>
-                  <span className="chain-step-name">
-                    Step {step.step_index + 1}: {step.request_name}
-                  </span>
-                  {step.status > 0 && (
-                    <span className={`chain-step-status ${step.status < 300 ? "status-ok" : "status-err"}`}>
-                      {step.status}
-                    </span>
-                  )}
-                  <span className="chain-step-time">{step.elapsed_ms}ms</span>
-                </div>
-                {Object.keys(step.extracted).length > 0 && (
-                  <div className="chain-step-vars">
-                    {Object.entries(step.extracted).map(([name, val]) => (
-                      <div key={name} className="chain-var">
-                        <span className="chain-var-name">{name}</span>
-                        <span className="chain-var-eq">=</span>
-                        <span className="chain-var-value">{val.length > 80 ? val.slice(0, 77) + "..." : val}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {step.error && (
-                  <div className="chain-step-error">{step.error}</div>
-                )}
-                {isExpanded && (
-                  <div className="chain-step-detail">
-                    <div className="chain-detail-section">
-                      <div className="chain-detail-label">Request</div>
-                      <div className="chain-detail-row">
-                        <span className="chain-detail-method" style={{ color: METHOD_COLORS[step.request_method] ?? "#d4d4d4" }}>
+            <div className="wirechain-flow">
+              {chainResult.steps.map((step, idx) => {
+                const last = idx === chainResult.steps.length - 1;
+                const isExpanded = expandedChainSteps.has(step.step_index);
+                return (
+                  <div
+                    key={step.step_index}
+                    className={`wirechain-row ${step.passed ? "pass" : "fail"}`}
+                  >
+                    <div className="wirechain-rail">
+                      <span
+                        className={`wirechain-node ${step.passed ? "pass" : "fail"} ${last && step.passed ? "final" : ""}`}
+                      >
+                        {last && step.passed ? "✓" : step.step_index + 1}
+                      </span>
+                      {!last && <span className="wirechain-line" />}
+                    </div>
+                    <div className="wirechain-card">
+                      <div
+                        className="wirechain-card-head clickable"
+                        onClick={() =>
+                          setExpandedChainSteps((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(step.step_index))
+                              next.delete(step.step_index);
+                            else next.add(step.step_index);
+                            return next;
+                          })
+                        }
+                      >
+                        <span
+                          className="method-badge"
+                          style={{
+                            color:
+                              METHOD_COLORS[step.request_method] ??
+                              METHOD_COLOR_FALLBACK,
+                          }}
+                        >
                           {step.request_method}
                         </span>
-                        <span className="chain-detail-url">{step.request_url}</span>
+                        <span className="wirechain-name">
+                          {step.request_name}
+                        </span>
+                        <span className="wirechain-path">
+                          {step.request_url}
+                        </span>
+                        <div className="tb-spacer" />
+                        {step.status > 0 && (
+                          <span
+                            className="status-pill"
+                            style={{ color: statusColor(step.status) }}
+                          >
+                            <span
+                              className="status-dot"
+                              style={{ background: statusColor(step.status) }}
+                            />
+                            {step.status}
+                          </span>
+                        )}
+                        <span className="wirechain-time">
+                          {step.elapsed_ms} ms
+                        </span>
+                        <span className="wirechain-toggle">
+                          {isExpanded ? "▾" : "▸"}
+                        </span>
                       </div>
-                      {Object.keys(step.request_headers).length > 0 && (
-                        <div className="chain-detail-headers">
-                          {Object.entries(step.request_headers).map(([k, v]) => (
-                            <div key={k} className="chain-detail-header">
-                              <span className="header-key">{k}:</span> <span className="header-value">{v}</span>
-                            </div>
+                      {Object.keys(step.extracted).length > 0 && (
+                        <div className="wirechain-band">
+                          <span className="wirechain-band-label">EXTRACTS</span>
+                          {Object.entries(step.extracted).map(([name, val]) => (
+                            <span
+                              key={name}
+                              className="wirechain-chip extract"
+                              title={val}
+                            >
+                              {name} ={" "}
+                              {val.length > 40 ? val.slice(0, 37) + "…" : val}
+                            </span>
                           ))}
                         </div>
                       )}
-                    </div>
-                    <div className="chain-detail-section">
-                      <div className="chain-detail-label">
-                        Response {step.status > 0 && <span className={step.status < 300 ? "status-ok" : "status-err"}>{step.status} {step.status_text}</span>}
-                      </div>
-                      {Object.keys(step.response_headers).length > 0 && (
-                        <div className="chain-detail-headers">
-                          {Object.entries(step.response_headers).map(([k, v]) => (
-                            <div key={k} className="chain-detail-header">
-                              <span className="header-key">{k}:</span> <span className="header-value">{v}</span>
-                            </div>
-                          ))}
-                        </div>
+                      {step.error && (
+                        <div className="wirechain-error">{step.error}</div>
                       )}
-                      {step.response_body && (
-                        <pre className="chain-detail-body">{(() => {
-                          try {
-                            return JSON.stringify(JSON.parse(step.response_body), null, 2);
-                          } catch {
-                            return step.response_body;
-                          }
-                        })()}</pre>
+                      {isExpanded && (
+                        <div className="chain-step-detail">
+                          <div className="chain-detail-section">
+                            <div className="chain-detail-label">Request</div>
+                            {Object.keys(step.request_headers).length > 0 && (
+                              <div className="chain-detail-headers">
+                                {Object.entries(step.request_headers).map(
+                                  ([k, v]) => (
+                                    <div key={k} className="chain-detail-header">
+                                      <span className="header-key">{k}:</span>{" "}
+                                      <span className="header-value">{v}</span>
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <div className="chain-detail-section">
+                            <div className="chain-detail-label">
+                              Response{" "}
+                              {step.status > 0 && (
+                                <span style={{ color: statusColor(step.status) }}>
+                                  {step.status} {step.status_text}
+                                </span>
+                              )}
+                            </div>
+                            {step.response_body && (
+                              <pre className="chain-detail-body">
+                                {(() => {
+                                  try {
+                                    return JSON.stringify(
+                                      JSON.parse(step.response_body),
+                                      null,
+                                      2
+                                    );
+                                  } catch {
+                                    return step.response_body;
+                                  }
+                                })()}
+                              </pre>
+                            )}
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>
-                )}
-              </div>
-              );
-            })}
-            {chainResult.error && !chainResult.success && (
-              <div className="chain-error">{chainResult.error}</div>
-            )}
+                );
+              })}
+              {chainResult.error && !chainResult.success && (
+                <div className="chain-error">{chainResult.error}</div>
+              )}
+            </div>
           </div>
         )}
       </section>
+        </>
+      )}
+      </div>
+      )}
 
       {promptState && (
         <PromptModal

@@ -209,29 +209,29 @@ describe("METHOD_COLORS", () => {
     expect(METHOD_COLORS.DELETE).toBeDefined();
   });
 
-  it("returns hex color strings", () => {
+  it("returns token-referencing color strings", () => {
     for (const color of Object.values(METHOD_COLORS)) {
-      expect(color).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(color).toMatch(/^var\(--method-[a-z]+\)$/);
     }
   });
 });
 
 describe("statusColor", () => {
-  it("returns green for 2xx", () => {
-    expect(statusColor(200)).toBe("#4ec9b0");
-    expect(statusColor(201)).toBe("#4ec9b0");
-    expect(statusColor(204)).toBe("#4ec9b0");
+  it("returns ok token for 2xx", () => {
+    expect(statusColor(200)).toBe("var(--ok)");
+    expect(statusColor(201)).toBe("var(--ok)");
+    expect(statusColor(204)).toBe("var(--ok)");
   });
 
-  it("returns yellow for 3xx", () => {
-    expect(statusColor(301)).toBe("#dcdcaa");
-    expect(statusColor(304)).toBe("#dcdcaa");
+  it("returns warn token for 3xx", () => {
+    expect(statusColor(301)).toBe("var(--warn)");
+    expect(statusColor(304)).toBe("var(--warn)");
   });
 
-  it("returns red for 4xx and 5xx", () => {
-    expect(statusColor(400)).toBe("#f44747");
-    expect(statusColor(404)).toBe("#f44747");
-    expect(statusColor(500)).toBe("#f44747");
+  it("returns err token for 4xx and 5xx", () => {
+    expect(statusColor(400)).toBe("var(--err)");
+    expect(statusColor(404)).toBe("var(--err)");
+    expect(statusColor(500)).toBe("var(--err)");
   });
 });
 
