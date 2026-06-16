@@ -228,3 +228,25 @@ pub struct SaveSourceFileArgs {
     pub path: String,
     pub content: String,
 }
+
+/// Result of comparing a fresh response against a saved snapshot.
+#[derive(Debug, Clone, Serialize)]
+pub struct SnapshotComparison {
+    pub exists: bool,
+    pub status_old: u16,
+    pub status_new: u16,
+    pub entries: Vec<wire_core::diff::DiffEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotArgs {
+    pub file: String,
+    pub response: IpcResponse,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteRequestArgs {
+    pub file: String,
+}

@@ -1,5 +1,7 @@
 use crate::state::AppState;
-use crate::types::{IpcCollectionInfo, IpcRequestEntry, IpcResponse, IpcScanResult};
+use crate::types::{
+    IpcCollectionInfo, IpcRequestEntry, IpcResponse, IpcScanResult, SnapshotComparison,
+};
 use std::path::Path;
 use tauri::State;
 use wire_core::collection::{
@@ -664,5 +666,147 @@ pub async fn evaluate_tests(
     Ok(wire_core::test::evaluate_assertions(
         &assertions,
         &wire_response,
+    ))
+}
+
+/// Compute a request's path relative to the collection dir (e.g.
+/// `requests/users/list.wire.yaml`) for snapshot path mapping.
+fn snapshot_relative(wire_dir: &Path, file: &str) -> String {
+    Path::new(file)
+        .strip_prefix(wire_dir)
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| file.to_string())
+}
+
+/// Save the given response as the golden-file snapshot for a request.
+#[tauri::command]
+pub async fn save_response_snapshot(
+    file: String,
+    response: IpcResponse,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let wire_dir = state
+        .collection_path
+        .lock()
+        .await
+        .clone()
+        .ok_or("Open a collection to save snapshots.")?;
+    let rel = snapshot_relative(&wire_dir, &file);
+    let snap = wire_core::snapshot::snapshot_from_response(
+        response.status,
+        &response.headers,
+        &response.body,
+    );
+    let path =
+        wire_core::snapshot::save_snapshot(&snap, &wire_dir, &rel).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Compare a fresh response against the saved snapshot, honoring the request's
+/// `snapshot.ignore` rules. Returns `exists: false` if no snapshot is saved yet.
+#[tauri::command]
+pub async fn compare_response_snapshot(
+    file: String,
+    response: IpcResponse,
+    state: State<'_, AppState>,
+) -> Result<SnapshotComparison, String> {
+    let wire_dir = state
+        .collection_path
+        .lock()
+        .await
+        .clone()
+        .ok_or("Open a collection to compare snapshots.")?;
+    let rel = snapshot_relative(&wire_dir, &file);
+    let saved = wire_core::snapshot::load_snapshot(&wire_dir, &rel).map_err(|e| e.to_string())?;
+    let current = wire_core::snapshot::snapshot_from_response(
+        response.status,
+        &response.headers,
+        &response.body,
+    );
+    match saved {
+        None => Ok(SnapshotComparison {
+            exists: false,
+            status_old: 0,
+            status_new: current.status,
+            entries: Vec::new(),
+        }),
+        Some(saved) => {
+            let ignore = load_request(Path::new(&file))
+                .ok()
+                .and_then(|r| r.snapshot)
+                .map(|s| s.ignore)
+                .unwrap_or_default();
+            let rules = wire_core::diff::ignore::parse_ignore_rules(&ignore);
+            let diff = wire_core::diff::structural_diff(&saved.body, &current.body);
+            let entries = wire_core::diff::ignore::filter_diffs(diff, &rules);
+            Ok(SnapshotComparison {
+                exists: true,
+                status_old: saved.status,
+                status_new: current.status,
+                entries,
+            })
+        }
+    }
+}
+
+/// Delete a request `.wire.yaml` file from disk.
+#[tauri::command]
+pub async fn delete_request(file: String) -> Result<(), String> {
+    std::fs::remove_file(&file).map_err(|e| e.to_string())
+}
+
+/// Save the current collection's contract as the breaking-change baseline.
+/// Returns the number of endpoints captured.
+#[tauri::command]
+pub async fn save_breaking_baseline(state: State<'_, AppState>) -> Result<usize, String> {
+    let wire_dir = state
+        .collection_path
+        .lock()
+        .await
+        .clone()
+        .ok_or("Open a collection to save a contract baseline.")?;
+    let (snapshot, _path) =
+        wire_core::breaking::save_snapshot(&wire_dir).map_err(|e| e.to_string())?;
+    Ok(snapshot.endpoints.len())
+}
+
+/// Compare the current collection contract against the saved baseline.
+#[tauri::command]
+pub async fn check_breaking(
+    state: State<'_, AppState>,
+) -> Result<wire_core::breaking::BreakingReport, String> {
+    let wire_dir = state
+        .collection_path
+        .lock()
+        .await
+        .clone()
+        .ok_or("Open a collection to check breaking changes.")?;
+    wire_core::breaking::compare(&wire_dir).map_err(|e| e.to_string())
+}
+
+/// Validate every secret reference in the collection's environments.
+#[tauri::command]
+pub async fn check_secrets(
+    state: State<'_, AppState>,
+) -> Result<Vec<wire_core::variables::secrets::SecretCheckResult>, String> {
+    // Lock order matches the rest of the file: path first, then collection.
+    let col_path = state.collection_path.lock().await.clone();
+    let collection_guard = state.collection.lock().await;
+    let collection = collection_guard
+        .as_ref()
+        .ok_or("Open a collection to check secrets.")?;
+    let project_dir = collection
+        .metadata
+        .source_dir
+        .as_ref()
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            col_path
+                .as_ref()
+                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        });
+    Ok(wire_core::variables::secrets::check_collection_secrets(
+        &collection.environments,
+        project_dir.as_deref(),
     ))
 }

@@ -110,6 +110,21 @@ fn api_router(state: SharedState) -> Router<SharedState> {
             post(commands::toggle_default_template),
         )
         .route("/run_chain", post(commands::run_chain))
+        .route(
+            "/save_response_snapshot",
+            post(commands::save_response_snapshot),
+        )
+        .route(
+            "/compare_response_snapshot",
+            post(commands::compare_response_snapshot),
+        )
+        .route("/delete_request", post(commands::delete_request))
+        .route(
+            "/save_breaking_baseline",
+            post(commands::save_breaking_baseline),
+        )
+        .route("/check_breaking", post(commands::check_breaking))
+        .route("/check_secrets", post(commands::check_secrets))
         .route("/list_source_files", post(commands::list_source_files))
         .route("/read_source_file", post(commands::read_source_file))
         .route("/save_source_file", post(commands::save_source_file))
