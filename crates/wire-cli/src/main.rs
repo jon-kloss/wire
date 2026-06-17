@@ -893,14 +893,19 @@ async fn cmd_mcp(wire_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
         if trimmed.is_empty() {
             continue;
         }
-        let msg: serde_json::Value = match serde_json::from_str(trimmed) {
-            Ok(v) => v,
+        // Per JSON-RPC 2.0, a parse error must be answered with id: null and
+        // code -32700 so the client doesn't hang waiting for a response.
+        let response = match serde_json::from_str::<serde_json::Value>(trimmed) {
+            Ok(msg) => server.handle(&msg).await,
             Err(e) => {
                 eprintln!("mcp: invalid JSON-RPC message: {e}");
-                continue;
+                Some(serde_json::json!({
+                    "jsonrpc": "2.0", "id": null,
+                    "error": { "code": -32700, "message": "Parse error" }
+                }))
             }
         };
-        if let Some(resp) = server.handle(&msg).await {
+        if let Some(resp) = response {
             stdout
                 .write_all(serde_json::to_string(&resp)?.as_bytes())
                 .await?;

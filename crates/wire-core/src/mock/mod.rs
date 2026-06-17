@@ -41,41 +41,62 @@ fn id_like(seg: &str) -> bool {
             .all(|(&n, p)| p.len() == n && p.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
-/// Does a normalized route pattern (`/pets/{id}`) match a concrete path
-/// (`/pets/123`)? `{param}` segments are wildcards, literals compare
-/// case-insensitively, and an id-like literal also matches any same-kind id.
-/// Segment counts must match.
-pub fn route_matches(pattern: &str, path: &str) -> bool {
+/// Score how specifically a route pattern matches a concrete path, or `None`
+/// if it doesn't match. Higher = more specific: each exact literal segment
+/// scores 2, each id-like literal 1, each `{param}` wildcard 0. Segment counts
+/// must match. Used to prefer `/pets/special` over `/pets/{id}` deterministically.
+fn match_score(pattern: &str, path: &str) -> Option<i32> {
     let pat = segments(pattern);
     let req = segments(path);
     if pat.len() != req.len() {
-        return false;
+        return None;
     }
-    pat.iter().zip(req.iter()).all(|(a, b)| {
-        (a.starts_with('{') && a.ends_with('}')) || a == b || (id_like(a) && id_like(b))
-    })
+    let mut score = 0;
+    for (a, b) in pat.iter().zip(req.iter()) {
+        if a.starts_with('{') && a.ends_with('}') {
+            // wildcard: +0
+        } else if a == b {
+            score += 2;
+        } else if id_like(a) && id_like(b) {
+            score += 1;
+        } else {
+            return None;
+        }
+    }
+    Some(score)
+}
+
+/// Does a normalized route pattern (`/pets/{id}`) match a concrete path
+/// (`/pets/123`)? `{param}` segments are wildcards, literals compare
+/// case-insensitively, and an id-like literal also matches any same-kind id.
+pub fn route_matches(pattern: &str, path: &str) -> bool {
+    match_score(pattern, path).is_some()
 }
 
 /// Resolve a mock response for `(method, path)` against the collection's
-/// requests, or `None` if nothing matches (the server should 404). `wire_dir`
-/// is the `.wire/` directory, used to locate snapshots; request paths are the
-/// absolute `.wire.yaml` paths from the loaded collection.
+/// requests, or `None` if nothing matches (the server should 404). Picks the
+/// MOST SPECIFIC matching route (literal > id-like > wildcard), breaking ties
+/// by route, so results don't depend on directory-read order. `wire_dir` is the
+/// `.wire/` directory (for snapshots); request paths are absolute `.wire.yaml` paths.
 pub fn resolve(
     requests: &[(std::path::PathBuf, WireRequest)],
     wire_dir: &Path,
     method: &str,
     path: &str,
 ) -> Option<MockResponse> {
-    for (req_path, req) in requests {
-        if !req.method.eq_ignore_ascii_case(method) {
-            continue;
-        }
-        let route = crate::drift::normalize_route(&req.url);
-        if route_matches(&route, path) {
-            return Some(build_response(req_path, req, wire_dir, method));
-        }
-    }
-    None
+    let mut matches: Vec<(i32, String, &std::path::PathBuf, &WireRequest)> = requests
+        .iter()
+        .filter(|(_, r)| r.method.eq_ignore_ascii_case(method))
+        .filter_map(|(p, r)| {
+            let route = crate::drift::normalize_route(&r.url);
+            match_score(&route, path).map(|score| (score, route, p, r))
+        })
+        .collect();
+    // Most specific first; tie-break by route for determinism.
+    matches.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    matches
+        .first()
+        .map(|(_, _, p, r)| build_response(p, r, wire_dir, method))
 }
 
 fn build_response(
@@ -84,27 +105,27 @@ fn build_response(
     wire_dir: &Path,
     method: &str,
 ) -> MockResponse {
-    // Most accurate: a saved snapshot of a real response.
-    let relative = req_path
-        .strip_prefix(wire_dir)
-        .unwrap_or(req_path)
-        .to_string_lossy()
-        .replace('\\', "/");
-    if let Ok(Some(snap)) = crate::snapshot::load_snapshot(wire_dir, &relative) {
-        let content_type = snap
-            .headers
-            .get("content-type")
-            .cloned()
-            .unwrap_or_else(|| "application/json".to_string());
-        let body = match &snap.body {
-            Value::String(s) => s.clone(),
-            v => serde_json::to_string_pretty(v).unwrap_or_else(|_| "{}".to_string()),
-        };
-        return MockResponse {
-            status: snap.status,
-            content_type,
-            body,
-        };
+    // Most accurate: a saved snapshot of a real response. Only attempt this
+    // when the request path is genuinely inside wire_dir, so a stray absolute
+    // path can't make snapshot_path's join() read outside .wire/snapshots/.
+    if let Ok(rel) = req_path.strip_prefix(wire_dir) {
+        let relative = rel.to_string_lossy().replace('\\', "/");
+        if let Ok(Some(snap)) = crate::snapshot::load_snapshot(wire_dir, &relative) {
+            let content_type = snap
+                .headers
+                .get("content-type")
+                .cloned()
+                .unwrap_or_else(|| "application/json".to_string());
+            let body = match &snap.body {
+                Value::String(s) => s.clone(),
+                v => serde_json::to_string_pretty(v).unwrap_or_else(|_| "{}".to_string()),
+            };
+            return MockResponse {
+                status: snap.status,
+                content_type,
+                body,
+            };
+        }
     }
 
     let status = if method.eq_ignore_ascii_case("POST") {
@@ -221,6 +242,30 @@ mod tests {
         assert_eq!(v["age"], json!(0));
         assert_eq!(v["active"], json!(false));
         assert_eq!(v["tags"], json!([]));
+    }
+
+    #[test]
+    fn resolve_prefers_most_specific_route() {
+        let dir = tempfile::tempdir().unwrap();
+        let wire_dir = dir.path();
+        // Wildcard listed first; the literal /pets/special must still win.
+        let reqs = vec![
+            (
+                wire_dir.join("requests/pets/by-id.wire.yaml"),
+                req("GET", "{{baseUrl}}/pets/{{id}}", &[("from", "string")]),
+            ),
+            (
+                wire_dir.join("requests/pets/special.wire.yaml"),
+                req("GET", "{{baseUrl}}/pets/special", &[("special", "string")]),
+            ),
+        ];
+        let r = resolve(&reqs, wire_dir, "GET", "/pets/special").unwrap();
+        let v: Value = serde_json::from_str(&r.body).unwrap();
+        assert_eq!(v["special"], json!("string")); // literal route, not the {id} one
+                                                   // A non-literal id still falls to the wildcard.
+        let r2 = resolve(&reqs, wire_dir, "GET", "/pets/42").unwrap();
+        let v2: Value = serde_json::from_str(&r2.body).unwrap();
+        assert_eq!(v2["from"], json!("string"));
     }
 
     #[test]

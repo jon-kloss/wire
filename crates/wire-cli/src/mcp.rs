@@ -24,7 +24,7 @@ impl Server {
         Self {
             collection,
             wire_dir,
-            http: HttpClient::new().unwrap_or_default(),
+            http: HttpClient::new().expect("failed to build HTTP client"),
         }
     }
 
@@ -142,8 +142,15 @@ impl Server {
             .map(|s| s.to_string())
             .or_else(|| self.collection.metadata.active_env.clone());
         if let Some(key) = &active {
-            if let Some(environment) = self.collection.environments.get(key) {
-                scope.push_layer(environment.variables.clone());
+            match self.collection.environments.get(key) {
+                Some(environment) => scope.push_layer(environment.variables.clone()),
+                // An explicitly requested env that doesn't exist is an error —
+                // otherwise the request runs with unresolved {{vars}} and fails
+                // confusingly.
+                None if env.is_some() => {
+                    return Err(format!("no environment named '{key}' in the collection"))
+                }
+                None => {}
             }
         }
 
