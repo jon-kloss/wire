@@ -80,19 +80,31 @@ export function formatTimeAgo(timestamp: string): string {
   return `${days}d ago`;
 }
 
-/** Method → color mapping for sidebar badges */
+/** Method → color mapping for sidebar badges. Semantic — never themed.
+ *  Values reference the design tokens so tokens.css stays the single source. */
 export const METHOD_COLORS: Record<string, string> = {
-  GET: "#4ec9b0",
-  POST: "#dcdcaa",
-  PUT: "#569cd6",
-  PATCH: "#c586c0",
-  DELETE: "#f44747",
+  GET: "var(--method-get)",
+  POST: "var(--method-post)",
+  PUT: "var(--method-put)",
+  PATCH: "var(--method-patch)",
+  DELETE: "var(--method-delete)",
 };
 
+/** Fallback for unknown methods (HEAD, OPTIONS, …). */
+export const METHOD_COLOR_FALLBACK = "var(--text-mid)";
+
 export function statusColor(status: number): string {
-  if (status < 300) return "#4ec9b0";
-  if (status < 400) return "#dcdcaa";
-  return "#f44747";
+  if (status < 300) return "var(--ok)";
+  if (status < 400) return "var(--warn)";
+  return "var(--err)";
+}
+
+/** Human-readable byte size, e.g. 1234 → "1.2 KB". */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
 }
 
 export function formatBody(body: string): string {

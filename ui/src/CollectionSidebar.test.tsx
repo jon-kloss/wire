@@ -430,21 +430,21 @@ describe("Collection Accordion", () => {
     const badges = screen.getAllByText(/^(GET|POST|DELETE)$/);
     expect(badges.length).toBe(3);
 
-    // Verify GET badge has correct color (jsdom converts hex #4ec9b0 to rgb)
+    // Verify GET badge references the method token (color resolved from tokens.css)
     const getBadge = screen.getByTestId("request-Get Users").querySelector(".method-badge");
     expect(getBadge).toBeDefined();
     expect(getBadge!.textContent).toBe("GET");
-    expect(getBadge!.getAttribute("style")).toContain("rgb(78, 201, 176)");
+    expect(getBadge!.getAttribute("style")).toContain("var(--method-get)");
 
-    // Verify POST badge (#dcdcaa)
+    // Verify POST badge
     const postBadge = screen.getByTestId("request-Create User").querySelector(".method-badge");
     expect(postBadge!.textContent).toBe("POST");
-    expect(postBadge!.getAttribute("style")).toContain("rgb(220, 220, 170)");
+    expect(postBadge!.getAttribute("style")).toContain("var(--method-post)");
 
-    // Verify DELETE badge (#f44747)
+    // Verify DELETE badge
     const deleteBadge = screen.getByTestId("request-Delete User").querySelector(".method-badge");
     expect(deleteBadge!.textContent).toBe("DELETE");
-    expect(deleteBadge!.getAttribute("style")).toContain("rgb(244, 71, 71)");
+    expect(deleteBadge!.getAttribute("style")).toContain("var(--method-delete)");
   });
 
   it("collapses accordion when header is clicked again", () => {
