@@ -1,3 +1,5 @@
+mod mcp;
+
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use std::path::Path;
@@ -52,6 +54,12 @@ enum Commands {
         /// Port to listen on
         #[arg(short, long, default_value_t = 8080)]
         port: u16,
+    },
+    /// Serve the collection to AI agents over MCP (stdio JSON-RPC)
+    Mcp {
+        /// Path to .wire directory (defaults to .wire/ in current dir)
+        #[arg(short = 'd', long, default_value = ".wire")]
+        dir: String,
     },
     /// Run tests defined in .wire.yaml files
     Test {
@@ -247,6 +255,12 @@ async fn main() {
         }
         Commands::Mock { dir, port } => {
             if let Err(e) = cmd_mock(&dir, port) {
+                eprintln!("{}: {e}", "Error".red().bold());
+                std::process::exit(1);
+            }
+        }
+        Commands::Mcp { dir } => {
+            if let Err(e) = cmd_mcp(&dir) {
                 eprintln!("{}: {e}", "Error".red().bold());
                 std::process::exit(1);
             }
@@ -849,6 +863,48 @@ fn cmd_mock(wire_dir: &str, port: u16) -> Result<(), Box<dyn std::error::Error>>
             .with_status_code(status)
             .with_header(header);
         let _ = request.respond(response);
+    }
+
+    Ok(())
+}
+
+fn cmd_mcp(wire_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::{BufRead, Write};
+
+    let wire_path = Path::new(wire_dir);
+    let collection = load_collection(wire_path)?;
+    let server = mcp::Server::new(collection, wire_path.to_path_buf());
+    // stdout is the protocol channel — logs go to stderr only.
+    eprintln!(
+        "wire mcp — serving {} endpoints from {} over stdio",
+        server.endpoint_count(),
+        wire_path.display()
+    );
+
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    let mut reader = stdin.lock();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if reader.read_line(&mut line)? == 0 {
+            break; // EOF
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let msg: serde_json::Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("mcp: invalid JSON-RPC message: {e}");
+                continue;
+            }
+        };
+        if let Some(resp) = server.handle(&msg) {
+            writeln!(stdout, "{}", serde_json::to_string(&resp)?)?;
+            stdout.flush()?;
+        }
     }
 
     Ok(())
