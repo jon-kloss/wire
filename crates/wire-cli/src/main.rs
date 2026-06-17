@@ -260,7 +260,7 @@ async fn main() {
             }
         }
         Commands::Mcp { dir } => {
-            if let Err(e) = cmd_mcp(&dir) {
+            if let Err(e) = cmd_mcp(&dir).await {
                 eprintln!("{}: {e}", "Error".red().bold());
                 std::process::exit(1);
             }
@@ -868,8 +868,8 @@ fn cmd_mock(wire_dir: &str, port: u16) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-fn cmd_mcp(wire_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
-    use std::io::{BufRead, Write};
+async fn cmd_mcp(wire_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     let wire_path = Path::new(wire_dir);
     let collection = load_collection(wire_path)?;
@@ -881,13 +881,12 @@ fn cmd_mcp(wire_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
         wire_path.display()
     );
 
-    let stdin = std::io::stdin();
-    let mut stdout = std::io::stdout();
-    let mut reader = stdin.lock();
+    let mut reader = BufReader::new(tokio::io::stdin());
+    let mut stdout = tokio::io::stdout();
     let mut line = String::new();
     loop {
         line.clear();
-        if reader.read_line(&mut line)? == 0 {
+        if reader.read_line(&mut line).await? == 0 {
             break; // EOF
         }
         let trimmed = line.trim();
@@ -901,9 +900,12 @@ fn cmd_mcp(wire_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
         };
-        if let Some(resp) = server.handle(&msg) {
-            writeln!(stdout, "{}", serde_json::to_string(&resp)?)?;
-            stdout.flush()?;
+        if let Some(resp) = server.handle(&msg).await {
+            stdout
+                .write_all(serde_json::to_string(&resp)?.as_bytes())
+                .await?;
+            stdout.write_all(b"\n").await?;
+            stdout.flush().await?;
         }
     }
 

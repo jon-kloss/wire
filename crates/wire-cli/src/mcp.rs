@@ -9,12 +9,14 @@
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use wire_core::collection::LoadedCollection;
+use wire_core::http::HttpClient;
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
 pub struct Server {
     collection: LoadedCollection,
     wire_dir: PathBuf,
+    http: HttpClient,
 }
 
 impl Server {
@@ -22,6 +24,7 @@ impl Server {
         Self {
             collection,
             wire_dir,
+            http: HttpClient::new().unwrap_or_default(),
         }
     }
 
@@ -31,7 +34,7 @@ impl Server {
 
     /// Handle one JSON-RPC message; returns the response, or `None` for
     /// notifications (no `id`).
-    pub fn handle(&self, msg: &Value) -> Option<Value> {
+    pub async fn handle(&self, msg: &Value) -> Option<Value> {
         let id = msg.get("id").cloned();
         let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
 
@@ -53,7 +56,7 @@ impl Server {
                 let params = msg.get("params").cloned().unwrap_or(json!({}));
                 let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
                 let args = params.get("arguments").cloned().unwrap_or(json!({}));
-                match self.call_tool(name, &args) {
+                match self.call_tool(name, &args).await {
                     Ok(text) => Some(ok(
                         id,
                         json!({ "content": [{ "type": "text", "text": text }] }),
@@ -69,7 +72,7 @@ impl Server {
         }
     }
 
-    fn call_tool(&self, name: &str, args: &Value) -> Result<String, String> {
+    async fn call_tool(&self, name: &str, args: &Value) -> Result<String, String> {
         match name {
             "list_endpoints" => Ok(self.list_endpoints()),
             "get_request" => {
@@ -90,9 +93,55 @@ impl Server {
                     .ok_or("missing required arg: path")?;
                 Ok(self.mock_response(method, path))
             }
+            "send_request" => {
+                let req_name = args
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .ok_or("missing required arg: name")?;
+                let env = args.get("env").and_then(|e| e.as_str());
+                self.send_request(req_name, env).await
+            }
             "check_breaking" => self.check_breaking(),
             _ => Err(format!("unknown tool: {name}")),
         }
+    }
+
+    /// Actually execute a request from the collection against the real API,
+    /// resolving its template chain and the selected (or active) environment.
+    async fn send_request(&self, name: &str, env: Option<&str>) -> Result<String, String> {
+        let (path, _) = self
+            .collection
+            .requests
+            .iter()
+            .find(|(_, r)| r.name.eq_ignore_ascii_case(name))
+            .ok_or_else(|| format!("no request named '{name}' in the collection"))?;
+
+        let request = wire_core::collection::load_request_resolved(path, &self.wire_dir)
+            .map_err(|e| e.to_string())?;
+
+        let mut scope = wire_core::variables::VariableScope::new();
+        let active = env
+            .map(|s| s.to_string())
+            .or_else(|| self.collection.metadata.active_env.clone());
+        if let Some(key) = &active {
+            if let Some(environment) = self.collection.environments.get(key) {
+                scope.push_layer(environment.variables.clone());
+            }
+        }
+
+        let response = wire_core::http::execute(&self.http, &request, &scope)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        Ok(json!({
+            "status": response.status,
+            "status_text": response.status_text,
+            "elapsed_ms": response.elapsed.as_millis(),
+            "size_bytes": response.size_bytes,
+            "headers": response.headers,
+            "body": response.body,
+        })
+        .to_string())
     }
 
     fn list_endpoints(&self) -> String {
@@ -181,6 +230,18 @@ fn tool_specs() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "send_request",
+            "description": "Actually execute a request from the collection against the real API (resolves its template chain and the selected/active environment) and return the live status, headers, and body. This makes a real network call.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "The request's name." },
+                    "env": { "type": "string", "description": "Environment to use; defaults to the collection's active_env." }
+                },
+                "required": ["name"]
+            }
+        }),
+        json!({
             "name": "check_breaking",
             "description": "Compare the current collection contract against the saved baseline and report BREAKING / WARNING / INFO changes. Requires a baseline (wire breaking --save).",
             "inputSchema": { "type": "object", "properties": {} }
@@ -224,45 +285,50 @@ mod tests {
         Server::new(collection, PathBuf::from(".wire"))
     }
 
-    #[test]
-    fn initialize_advertises_tools() {
+    #[tokio::test]
+    async fn initialize_advertises_tools() {
         let s = server();
         let resp = s
             .handle(&json!({"jsonrpc":"2.0","id":1,"method":"initialize"}))
+            .await
             .unwrap();
         assert_eq!(resp["result"]["protocolVersion"], PROTOCOL_VERSION);
         assert!(resp["result"]["capabilities"]["tools"].is_object());
         assert_eq!(resp["result"]["serverInfo"]["name"], "wire");
     }
 
-    #[test]
-    fn notifications_get_no_response() {
+    #[tokio::test]
+    async fn notifications_get_no_response() {
         let s = server();
         assert!(s
             .handle(&json!({"jsonrpc":"2.0","method":"notifications/initialized"}))
+            .await
             .is_none());
     }
 
-    #[test]
-    fn tools_list_returns_specs() {
+    #[tokio::test]
+    async fn tools_list_returns_specs() {
         let s = server();
         let resp = s
             .handle(&json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}))
+            .await
             .unwrap();
         let tools = resp["result"]["tools"].as_array().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"list_endpoints"));
         assert!(names.contains(&"mock_response"));
+        assert!(names.contains(&"send_request"));
     }
 
-    #[test]
-    fn tools_call_list_endpoints() {
+    #[tokio::test]
+    async fn tools_call_list_endpoints() {
         let s = server();
         let resp = s
             .handle(&json!({
                 "jsonrpc":"2.0","id":3,"method":"tools/call",
                 "params": { "name": "list_endpoints", "arguments": {} }
             }))
+            .await
             .unwrap();
         let text = resp["result"]["content"][0]["text"].as_str().unwrap();
         let v: Value = serde_json::from_str(text).unwrap();
@@ -271,14 +337,15 @@ mod tests {
         assert_eq!(v["endpoints"][0]["method"], "GET");
     }
 
-    #[test]
-    fn tools_call_mock_response() {
+    #[tokio::test]
+    async fn tools_call_mock_response() {
         let s = server();
         let resp = s
             .handle(&json!({
                 "jsonrpc":"2.0","id":4,"method":"tools/call",
                 "params": { "name": "mock_response", "arguments": { "method": "GET", "path": "/pets" } }
             }))
+            .await
             .unwrap();
         let text = resp["result"]["content"][0]["text"].as_str().unwrap();
         let v: Value = serde_json::from_str(text).unwrap();
@@ -288,11 +355,29 @@ mod tests {
         assert_eq!(body["name"], "string");
     }
 
-    #[test]
-    fn unknown_method_errors() {
+    #[tokio::test]
+    async fn send_request_unknown_name_errors() {
+        let s = server();
+        let resp = s
+            .handle(&json!({
+                "jsonrpc":"2.0","id":6,"method":"tools/call",
+                "params": { "name": "send_request", "arguments": { "name": "Nope" } }
+            }))
+            .await
+            .unwrap();
+        assert_eq!(resp["result"]["isError"], true);
+        assert!(resp["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("no request named"));
+    }
+
+    #[tokio::test]
+    async fn unknown_method_errors() {
         let s = server();
         let resp = s
             .handle(&json!({"jsonrpc":"2.0","id":5,"method":"frobnicate"}))
+            .await
             .unwrap();
         assert_eq!(resp["error"]["code"], -32601);
     }
