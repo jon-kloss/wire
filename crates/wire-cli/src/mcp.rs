@@ -101,14 +101,32 @@ impl Server {
                 let env = args.get("env").and_then(|e| e.as_str());
                 self.send_request(req_name, env).await
             }
+            "run_test" => {
+                let req_name = args
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .ok_or("missing required arg: name")?;
+                let env = args.get("env").and_then(|e| e.as_str());
+                self.run_test(req_name, env).await
+            }
             "check_breaking" => self.check_breaking(),
             _ => Err(format!("unknown tool: {name}")),
         }
     }
 
-    /// Actually execute a request from the collection against the real API,
-    /// resolving its template chain and the selected (or active) environment.
-    async fn send_request(&self, name: &str, env: Option<&str>) -> Result<String, String> {
+    /// Resolve a request by name (template chain + selected/active env) and
+    /// execute it against the real API. Shared by send_request and run_test.
+    async fn execute_named(
+        &self,
+        name: &str,
+        env: Option<&str>,
+    ) -> Result<
+        (
+            wire_core::collection::WireRequest,
+            wire_core::http::WireResponse,
+        ),
+        String,
+    > {
         let (path, _) = self
             .collection
             .requests
@@ -132,7 +150,12 @@ impl Server {
         let response = wire_core::http::execute(&self.http, &request, &scope)
             .await
             .map_err(|e| e.to_string())?;
+        Ok((request, response))
+    }
 
+    /// Execute a request against the real API and return the live response.
+    async fn send_request(&self, name: &str, env: Option<&str>) -> Result<String, String> {
+        let (_, response) = self.execute_named(name, env).await?;
         Ok(json!({
             "status": response.status,
             "status_text": response.status_text,
@@ -140,6 +163,33 @@ impl Server {
             "size_bytes": response.size_bytes,
             "headers": response.headers,
             "body": response.body,
+        })
+        .to_string())
+    }
+
+    /// Execute a request and evaluate its assertions against the live response.
+    async fn run_test(&self, name: &str, env: Option<&str>) -> Result<String, String> {
+        let (request, response) = self.execute_named(name, env).await?;
+        let results = wire_core::test::evaluate_assertions(&request.tests, &response);
+        let passed = results.iter().filter(|r| r.passed).count();
+        let assertions: Vec<Value> = results
+            .iter()
+            .map(|r| {
+                json!({
+                    "field": r.field,
+                    "operator": r.operator,
+                    "passed": r.passed,
+                    "expected": r.expected,
+                    "actual": r.actual,
+                })
+            })
+            .collect();
+        Ok(json!({
+            "status": response.status,
+            "passed": passed,
+            "total": results.len(),
+            "all_passed": passed == results.len(),
+            "assertions": assertions,
         })
         .to_string())
     }
@@ -242,6 +292,18 @@ fn tool_specs() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "run_test",
+            "description": "Execute a request against the real API and evaluate its assertions, returning each assertion's pass/fail with expected vs actual and a pass count. Use this to verify an endpoint behaves as its contract specifies. Makes a real network call.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "The request's name." },
+                    "env": { "type": "string", "description": "Environment to use; defaults to the collection's active_env." }
+                },
+                "required": ["name"]
+            }
+        }),
+        json!({
             "name": "check_breaking",
             "description": "Compare the current collection contract against the saved baseline and report BREAKING / WARNING / INFO changes. Requires a baseline (wire breaking --save).",
             "inputSchema": { "type": "object", "properties": {} }
@@ -318,6 +380,7 @@ mod tests {
         assert!(names.contains(&"list_endpoints"));
         assert!(names.contains(&"mock_response"));
         assert!(names.contains(&"send_request"));
+        assert!(names.contains(&"run_test"));
     }
 
     #[tokio::test]
