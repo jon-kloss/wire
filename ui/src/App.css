@@ -19,7 +19,7 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr 1fr;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--response-w, 1fr);
 }
 
 /* ── Title bar ────────────────────────────────────────────────────── */
@@ -873,6 +873,36 @@
   flex-direction: column;
   background: var(--panel);
   overflow: hidden;
+  position: relative;
+}
+
+/* Drag handle on the left edge of the response panel to resize it. */
+.col-resizer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 20;
+  background: transparent;
+}
+
+.col-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 100%;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.col-resizer:hover::after,
+.col-resizer:active::after {
+  background: var(--accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
 /* URL bar */

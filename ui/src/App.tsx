@@ -218,6 +218,48 @@ function App() {
   const urlInputRef = useRef<HTMLInputElement>(null);
   const urlHighlightRef = useRef<HTMLDivElement>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
+  const appGridRef = useRef<HTMLDivElement>(null);
+
+  // Draggable width of the response panel (px). null = default even split.
+  const [responseWidth, setResponseWidth] = useState<number | null>(() => {
+    const saved =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem("wire.responseWidth")
+        : null;
+    const n = saved ? parseInt(saved, 10) : NaN;
+    return Number.isFinite(n) ? n : null;
+  });
+
+  useEffect(() => {
+    if (typeof localStorage === "undefined") return;
+    if (responseWidth == null) localStorage.removeItem("wire.responseWidth");
+    else localStorage.setItem("wire.responseWidth", String(responseWidth));
+  }, [responseWidth]);
+
+  /** Drag the request/response divider to resize the response panel. */
+  const startColResize = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    const grid = appGridRef.current;
+    if (!grid) return;
+    const SIDEBAR = 236;
+    const MIN = 320;
+    const onMove = (ev: PointerEvent) => {
+      const rect = grid.getBoundingClientRect();
+      const max = rect.width - SIDEBAR - 360;
+      const w = Math.max(MIN, Math.min(rect.right - ev.clientX, max));
+      setResponseWidth(w);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, []);
 
   // URL bar: overflow ("⋯") menu + hovered-variable tooltip
   const [urlMenuOpen, setUrlMenuOpen] = useState(false);
@@ -1596,7 +1638,15 @@ function App() {
         </div>
       </div>
       ) : (
-      <div className="app">
+      <div
+        className="app"
+        ref={appGridRef}
+        style={
+          {
+            "--response-w": responseWidth != null ? `${responseWidth}px` : "1fr",
+          } as React.CSSProperties
+        }
+      >
       {/* Left Panel: Sidebar */}
       <aside className="sidebar">
         <button className="new-request-btn" onClick={handleNewRequest}>
@@ -3629,6 +3679,12 @@ function App() {
 
       {/* Right Panel: Response Viewer */}
       <section className="response-viewer">
+        <div
+          className="col-resizer"
+          onPointerDown={startColResize}
+          onDoubleClick={() => setResponseWidth(null)}
+          title="Drag to resize · double-click to reset"
+        />
         <div className="response-header">
           {response ? (
             <>
