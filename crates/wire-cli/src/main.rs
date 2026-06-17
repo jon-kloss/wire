@@ -43,6 +43,16 @@ enum Commands {
         #[arg(default_value = ".wire")]
         dir: String,
     },
+    /// Serve a contract-accurate mock of the collection's endpoints
+    Mock {
+        /// Path to .wire directory (defaults to .wire/ in current dir)
+        #[arg(default_value = ".wire")]
+        dir: String,
+
+        /// Port to listen on
+        #[arg(short, long, default_value_t = 8080)]
+        port: u16,
+    },
     /// Run tests defined in .wire.yaml files
     Test {
         /// Path to a .wire.yaml file or directory to test
@@ -231,6 +241,12 @@ async fn main() {
         }
         Commands::List { dir } => {
             if let Err(e) = cmd_list(&dir) {
+                eprintln!("{}: {e}", "Error".red().bold());
+                std::process::exit(1);
+            }
+        }
+        Commands::Mock { dir, port } => {
+            if let Err(e) = cmd_mock(&dir, port) {
                 eprintln!("{}: {e}", "Error".red().bold());
                 std::process::exit(1);
             }
@@ -754,6 +770,85 @@ fn cmd_list(dir: &str) -> Result<(), Box<dyn std::error::Error>> {
             };
             println!("  {} {} — {}", method_colored, req.name, relative.dimmed());
         }
+    }
+
+    Ok(())
+}
+
+fn cmd_mock(wire_dir: &str, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    let wire_path = Path::new(wire_dir);
+    let collection = wire_core::collection::load_collection(wire_path)?;
+
+    // Print the route table (deduped, sorted).
+    println!(
+        "{}",
+        format!(
+            "wire mock — {} endpoints from {}",
+            collection.requests.len(),
+            wire_path.display()
+        )
+        .bold()
+    );
+    let mut routes: Vec<(String, String)> = collection
+        .requests
+        .iter()
+        .map(|(_, r)| {
+            (
+                r.method.to_uppercase(),
+                wire_core::drift::normalize_route(&r.url),
+            )
+        })
+        .collect();
+    routes.sort();
+    routes.dedup();
+    for (method, route) in &routes {
+        println!("  {:<7} {}", method.green(), route);
+    }
+
+    let addr = format!("127.0.0.1:{port}");
+    let server =
+        tiny_http::Server::http(&addr).map_err(|e| format!("Failed to bind {addr}: {e}"))?;
+    println!(
+        "\n{}  (Ctrl-C to stop)",
+        format!("Listening on http://{addr}").cyan()
+    );
+
+    for request in server.incoming_requests() {
+        let method = request.method().as_str().to_string();
+        let url = request.url().to_string();
+        let path = url.split('?').next().unwrap_or(&url);
+
+        let (status, body, content_type) =
+            match wire_core::mock::resolve(&collection.requests, wire_path, &method, path) {
+                Some(m) => (m.status, m.body, m.content_type),
+                None => (
+                    404,
+                    r#"{"error":"no matching endpoint in collection"}"#.to_string(),
+                    "application/json".to_string(),
+                ),
+            };
+
+        let status_str = format!("{status}");
+        println!(
+            "  {:<6} {} {}",
+            method,
+            path,
+            if status < 400 {
+                status_str.green()
+            } else {
+                status_str.yellow()
+            }
+        );
+
+        let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], content_type.as_bytes())
+            .unwrap_or_else(|_| {
+                tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                    .unwrap()
+            });
+        let response = tiny_http::Response::from_string(body)
+            .with_status_code(status)
+            .with_header(header);
+        let _ = request.respond(response);
     }
 
     Ok(())

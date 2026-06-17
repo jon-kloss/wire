@@ -47,8 +47,8 @@ impl DriftReport {
 
 /// Normalize a route for comparison.
 /// Strips {{schema}}://{{baseUrl}} prefix, lowercases, removes trailing slash,
-/// and converts all parameter syntaxes to a canonical form.
-fn normalize_route(raw: &str) -> String {
+/// and converts all parameter syntaxes to a canonical form (`/users/{id}`).
+pub fn normalize_route(raw: &str) -> String {
     let mut route = raw.to_string();
 
     // Strip common URL template prefixes
