@@ -216,7 +216,15 @@ function TreeItem({
 
 function App() {
   const urlInputRef = useRef<HTMLInputElement>(null);
+  const urlHighlightRef = useRef<HTMLDivElement>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
+
+  // URL bar: overflow ("⋯") menu + hovered-variable tooltip
+  const [urlMenuOpen, setUrlMenuOpen] = useState(false);
+  const [urlVarHover, setUrlVarHover] = useState<{
+    name: string;
+    value: string;
+  } | null>(null);
 
   // Accent theming (Ember / Signal / Pulse) — persisted, applied to <html>
   const { accent, setAccent } = useAccent();
@@ -1144,6 +1152,49 @@ function App() {
     setChainDraft(draft);
     setChainSteps(draft.filter((d) => d.run).map(draftToStep));
   }, []);
+
+  /** Save the current builder state as a reusable template. */
+  const handleSaveAsTemplate = useCallback(async () => {
+    if (!activeCollectionPath) return;
+    const name = await showPrompt("Template name:", "");
+    if (!name?.trim()) return;
+    const tmplName = name.trim().replace(/\s+/g, "-").toLowerCase();
+    try {
+      const headers: Record<string, string> = {};
+      if (headersText.trim()) {
+        for (const line of headersText.split("\n")) {
+          const idx = line.indexOf(":");
+          if (idx > 0) {
+            headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+          }
+        }
+      }
+      const body = buildBody();
+      const params: Record<string, string> = {};
+      for (const p of queryParams) {
+        if (p.key.trim() && p.enabled !== false) params[p.key.trim()] = p.value;
+      }
+      const tmpl: WireRequest = {
+        name: tmplName,
+        method: "",
+        url: "",
+        headers,
+        params,
+        body,
+      };
+      await invoke("save_template", { name: tmplName, request: tmpl });
+      const info = await invoke<IpcCollectionInfo>("open_collection", {
+        wireDir: activeCollectionPath,
+      });
+      setCollections((prev) =>
+        prev.map((c) =>
+          c.path === activeCollectionPath ? { info, path: c.path } : c
+        )
+      );
+    } catch (err) {
+      setError(String(err));
+    }
+  }, [activeCollectionPath, showPrompt, headersText, buildBody, queryParams]);
 
   const handleRunChain = async () => {
     if (!selectedRequestPath || chainSteps.length === 0) return;
@@ -2626,110 +2677,137 @@ function App() {
           <div className="url-input-wrapper">
             <div
               className="url-highlight"
+              ref={urlHighlightRef}
               aria-hidden="true"
               onClick={() => urlInputRef.current?.focus()}
             >
-              {url
-                ? url.split(/(\{\{[^}]+\}\})/).map((part, i) => {
-                    const varMatch = part.match(/^\{\{([^}]+)\}\}$/);
-                    if (varMatch) {
-                      const varName = varMatch[1];
-                      const resolved = activeEnvVars[varName];
-                      return (
-                        <span
-                          key={i}
-                          className="url-variable"
-                          data-tooltip={
-                            resolved !== undefined && resolved !== ""
-                              ? resolved
-                              : "Not Set"
-                          }
-                        >
-                          {part}
-                        </span>
-                      );
-                    }
-                    return <span key={i}>{part}</span>;
-                  })
-                : <span className="url-placeholder">Enter request URL...</span>}
+              {url ? (
+                url.split(/(\{\{[^}]+\}\})/).map((part, i) => {
+                  const varMatch = part.match(/^\{\{([^}]+)\}\}$/);
+                  if (varMatch) {
+                    const varName = varMatch[1];
+                    const resolved = activeEnvVars[varName];
+                    return (
+                      <span
+                        key={i}
+                        className="url-variable"
+                        onMouseEnter={() =>
+                          setUrlVarHover({
+                            name: varName,
+                            value:
+                              resolved !== undefined && resolved !== ""
+                                ? resolved
+                                : "",
+                          })
+                        }
+                        onMouseLeave={() => setUrlVarHover(null)}
+                      >
+                        {part}
+                      </span>
+                    );
+                  }
+                  return <span key={i}>{part}</span>;
+                })
+              ) : (
+                <span className="url-placeholder">Enter request URL\u2026</span>
+              )}
             </div>
             <input
               ref={urlInputRef}
               className="url-input"
               type="text"
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={(e) => {
+                setUrl(e.target.value);
+                if (urlHighlightRef.current)
+                  urlHighlightRef.current.scrollLeft = e.target.scrollLeft;
+              }}
+              onScroll={(e) => {
+                if (urlHighlightRef.current)
+                  urlHighlightRef.current.scrollLeft = e.currentTarget.scrollLeft;
+              }}
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
             />
+            {urlVarHover && (
+              <div className="url-var-tip">
+                <span className="url-var-tip-name">
+                  {"{{"}
+                  {urlVarHover.name}
+                  {"}}"}
+                </span>
+                <span className="url-var-tip-eq">=</span>
+                <span
+                  className={`url-var-tip-val ${urlVarHover.value ? "" : "unset"}`}
+                >
+                  {urlVarHover.value || "not set"}
+                </span>
+              </div>
+            )}
           </div>
-          <button className="send-btn" onClick={() => handleSend()} disabled={loading || chainLoading}>
-            {loading ? "Sending..." : "Send"}
+          <button
+            className="send-btn"
+            onClick={() => handleSend()}
+            disabled={loading || chainLoading}
+          >
+            {loading ? "Sending\u2026" : "Send"}
           </button>
-          {chainSteps.length > 0 && (
-            <button className="chain-btn" onClick={handleRunChain} disabled={loading || chainLoading}>
-              {chainLoading ? "Running..." : `Run Chain (${chainSteps.length})`}
-            </button>
-          )}
           <button className="save-btn" onClick={handleSaveRequest}>
             Save
           </button>
-          <button
-            className={`secrets-toggle-btn ${secretsRevealed ? "revealed" : ""}`}
-            onClick={() => setSecretsRevealed(!secretsRevealed)}
-            title={secretsRevealed ? "Hide secret values" : "Reveal secret values"}
-          >
-            {secretsRevealed ? "\uD83D\uDD13" : "\uD83D\uDD12"}
-          </button>
-          {activeCollectionPath && (
+          <div className="url-menu-wrap">
             <button
-              className="save-template-btn"
-              onClick={async () => {
-                const name = await showPrompt("Template name:", "");
-                if (!name?.trim()) return;
-                const tmplName = name.trim().replace(/\s+/g, "-").toLowerCase();
-                try {
-                  const headers: Record<string, string> = {};
-                  if (headersText.trim()) {
-                    for (const line of headersText.split("\n")) {
-                      const idx = line.indexOf(":");
-                      if (idx > 0) {
-                        headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-                      }
-                    }
-                  }
-                  const body = buildBody();
-                  const params: Record<string, string> = {};
-                  for (const p of queryParams) {
-                    if (p.key.trim() && p.enabled !== false) {
-                      params[p.key.trim()] = p.value;
-                    }
-                  }
-                  const tmpl: WireRequest = {
-                    name: tmplName,
-                    method: "",
-                    url: "",
-                    headers,
-                    params,
-                    body,
-                  };
-                  await invoke("save_template", { name: tmplName, request: tmpl });
-                  // Refresh collection to pick up new template
-                  const info = await invoke<IpcCollectionInfo>("open_collection", {
-                    wireDir: activeCollectionPath,
-                  });
-                  setCollections((prev) =>
-                    prev.map((c) =>
-                      c.path === activeCollectionPath ? { info, path: c.path } : c
-                    )
-                  );
-                } catch (err) {
-                  setError(String(err));
-                }
-              }}
+              className="url-menu-btn"
+              title="More actions"
+              aria-label="More actions"
+              onClick={() => setUrlMenuOpen((o) => !o)}
             >
-              Save as Template
+              {"\u22EF"}
             </button>
-          )}
+            {urlMenuOpen && (
+              <>
+                <div
+                  className="dropdown-backdrop"
+                  onClick={() => setUrlMenuOpen(false)}
+                />
+                <div className="url-menu">
+                  {chainSteps.length > 0 && (
+                    <button
+                      className="url-menu-item"
+                      disabled={loading || chainLoading}
+                      onClick={() => {
+                        setUrlMenuOpen(false);
+                        handleRunChain();
+                      }}
+                    >
+                      {chainLoading
+                        ? "Running\u2026"
+                        : `Run chain (${chainSteps.length})`}
+                    </button>
+                  )}
+                  <button
+                    className="url-menu-item"
+                    onClick={() => {
+                      setSecretsRevealed((v) => !v);
+                      setUrlMenuOpen(false);
+                    }}
+                  >
+                    {secretsRevealed ? "Hide secret values" : "Reveal secret values"}
+                  </button>
+                  {activeCollectionPath && (
+                    <button
+                      className="url-menu-item"
+                      onClick={() => {
+                        setUrlMenuOpen(false);
+                        handleSaveAsTemplate();
+                      }}
+                    >
+                      Save as template
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
         )}
         {!isEditingTemplate && activeTemplates.length > 0 && (
