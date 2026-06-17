@@ -124,6 +124,16 @@ enum Commands {
         #[arg(short, long, default_value = "text")]
         output: String,
     },
+    /// Review contract changes (breaking + drift) — for PRs / CI
+    Review {
+        /// Path to .wire collection directory
+        #[arg(short = 'd', long, default_value = ".wire")]
+        wire_dir: String,
+
+        /// Output format: markdown (default), or json
+        #[arg(short, long, default_value = "markdown")]
+        output: String,
+    },
     /// Install Wire's Claude Code skill to ~/.claude/commands/
     InstallClaudeSkill,
     /// Remove Wire's Claude Code skill from ~/.claude/commands/
@@ -251,6 +261,9 @@ async fn main() {
         } => {
             let exit_code = cmd_drift(&project_dir, &wire_dir, fix, &output);
             std::process::exit(exit_code);
+        }
+        Commands::Review { wire_dir, output } => {
+            std::process::exit(cmd_review(&wire_dir, &output));
         }
         Commands::Snapshot { action } => match action {
             SnapshotAction::Update {
@@ -1372,6 +1385,115 @@ fn cmd_env_check(wire_dir: &str) -> i32 {
     }
 }
 
+/// Combined contract review: breaking changes (vs baseline) + drift (vs source).
+/// Exits non-zero when breaking changes are present, so CI can flag a PR.
+fn cmd_review(wire_dir: &str, output: &str) -> i32 {
+    let wire_path = Path::new(wire_dir);
+    let collection = match load_collection(wire_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{}: {e}", "Error".red().bold());
+            return 1;
+        }
+    };
+
+    // Breaking changes vs the saved baseline (None if no baseline exists yet).
+    let breaking = wire_core::breaking::compare(wire_path).ok();
+
+    // Drift vs source, only if the collection was generated from a codebase.
+    let drift_report = collection.metadata.source_dir.as_ref().and_then(|src| {
+        wire_core::scan::scan_project(Path::new(src))
+            .ok()
+            .map(|scan| drift::compare(&scan.endpoints, &collection.requests))
+    });
+
+    if output == "json" {
+        let combined = serde_json::json!({ "breaking": breaking, "drift": drift_report });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&combined).unwrap_or_else(|_| "{}".to_string())
+        );
+    } else {
+        print!(
+            "{}",
+            format_review_markdown(breaking.as_ref(), drift_report.as_ref())
+        );
+    }
+
+    match breaking {
+        Some(b) if b.breaking_count > 0 => 1,
+        _ => 0,
+    }
+}
+
+/// Render a contract-change review as Markdown (suitable for a PR comment).
+fn format_review_markdown(
+    breaking: Option<&wire_core::breaking::BreakingReport>,
+    drift: Option<&drift::DriftReport>,
+) -> String {
+    use std::fmt::Write;
+    let mut s = String::new();
+    let _ = writeln!(s, "## 🔌 Wire contract review\n");
+
+    match breaking {
+        None => {
+            let _ = writeln!(
+                s,
+                "**Breaking changes:** _no baseline found — run `wire breaking --save` to enable._\n"
+            );
+        }
+        Some(b) if b.changes.is_empty() => {
+            let _ = writeln!(s, "**Breaking changes:** ✅ none vs baseline.\n");
+        }
+        Some(b) => {
+            let _ = writeln!(
+                s,
+                "**Breaking changes** (vs baseline): 🔴 {} breaking · 🟡 {} warning · 🔵 {} info\n",
+                b.breaking_count, b.warning_count, b.info_count
+            );
+            for c in &b.changes {
+                let icon = match c.severity {
+                    wire_core::breaking::Severity::Breaking => "🔴",
+                    wire_core::breaking::Severity::Warning => "🟡",
+                    wire_core::breaking::Severity::Info => "🔵",
+                };
+                let _ = writeln!(s, "- {icon} `{} {}` — {}", c.method, c.route, c.description);
+            }
+            let _ = writeln!(s);
+        }
+    }
+
+    match drift {
+        None => {}
+        Some(d) if d.items.is_empty() => {
+            let _ = writeln!(s, "**Drift** (source vs collection): ✅ in sync.\n");
+        }
+        Some(d) => {
+            let _ = writeln!(
+                s,
+                "**Drift** (source vs collection): +{} new · −{} stale · ~{} changed\n",
+                d.new_count, d.stale_count, d.changed_count
+            );
+            for it in &d.items {
+                let glyph = match it.category {
+                    drift::DriftCategory::New => "+",
+                    drift::DriftCategory::Stale => "−",
+                    drift::DriftCategory::Changed => "~",
+                };
+                let _ = write!(s, "- `{glyph}` `{} {}`", it.method, it.route);
+                if !it.changes.is_empty() {
+                    let _ = write!(s, " — {}", it.changes.join("; "));
+                }
+                let _ = writeln!(s);
+            }
+            let _ = writeln!(s);
+        }
+    }
+
+    let _ = writeln!(s, "_Generated by `wire review`._");
+    s
+}
+
 fn cmd_generate(project_dir: &str, output: Option<&str>) -> i32 {
     let project_path = Path::new(project_dir);
     let output_path = output.map(Path::new).unwrap_or(project_path);
@@ -1817,4 +1939,73 @@ fn print_status(status: u16) {
         status_str.red().bold()
     };
     print!("  {} {}", "Status:".dimmed(), colored);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wire_core::breaking::{BreakingReport, ContractChange, Severity};
+    use wire_core::drift::{DriftCategory, DriftItem, DriftReport};
+
+    #[test]
+    fn review_markdown_renders_breaking_and_drift() {
+        let breaking = BreakingReport {
+            changes: vec![
+                ContractChange {
+                    severity: Severity::Breaking,
+                    method: "DELETE".into(),
+                    route: "/users/{id}".into(),
+                    description: "endpoint removed".into(),
+                },
+                ContractChange {
+                    severity: Severity::Info,
+                    method: "POST".into(),
+                    route: "/orders".into(),
+                    description: "new endpoint".into(),
+                },
+            ],
+            breaking_count: 1,
+            warning_count: 0,
+            info_count: 1,
+        };
+        let drift = DriftReport {
+            items: vec![DriftItem {
+                category: DriftCategory::Changed,
+                method: "GET".into(),
+                route: "/users".into(),
+                name: "List Users".into(),
+                changes: vec!["new query params: page".into()],
+                request_path: None,
+            }],
+            new_count: 0,
+            stale_count: 0,
+            changed_count: 1,
+        };
+
+        let md = format_review_markdown(Some(&breaking), Some(&drift));
+        assert!(md.contains("Wire contract review"));
+        assert!(md.contains("🔴 1 breaking"));
+        assert!(md.contains("`DELETE /users/{id}` — endpoint removed"));
+        assert!(md.contains("`POST /orders` — new endpoint"));
+        assert!(md.contains("~1 changed"));
+        assert!(md.contains("new query params: page"));
+    }
+
+    #[test]
+    fn review_markdown_handles_no_baseline_and_clean() {
+        // No baseline, no drift source.
+        let md = format_review_markdown(None, None);
+        assert!(md.contains("no baseline found"));
+        assert!(!md.contains("Drift"));
+
+        // Baseline present with zero changes.
+        let clean = BreakingReport {
+            changes: vec![],
+            breaking_count: 0,
+            warning_count: 0,
+            info_count: 0,
+        };
+        let md2 = format_review_markdown(Some(&clean), None);
+        assert!(md2.contains("✅ none vs baseline"));
+    }
 }

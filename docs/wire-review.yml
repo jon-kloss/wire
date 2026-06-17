@@ -1,0 +1,55 @@
+# Wire contract review — copy this to `.github/workflows/wire-review.yml` in
+# your API repo. On every pull request it comments a breaking-change + drift
+# summary (sticky — updated in place) and fails the check when a breaking
+# change is detected, so reviewers see contract impact before merging.
+name: Wire contract review
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install the wire CLI. Swap for a release-binary download once published
+      # (this builds from source and is the slow part — cache ~/.cargo if needed).
+      - name: Install wire
+        run: cargo install --git https://github.com/jon-kloss/wire wire-cli
+
+      - name: Run wire review
+        id: review
+        run: |
+          set +e
+          wire review --wire-dir .wire --output markdown > review.md
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          cat review.md
+
+      - name: Comment on the PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- wire-contract-review -->';
+            const body = marker + '\n' + fs.readFileSync('review.md', 'utf8');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } =
+              await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.find(c => c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Fail on breaking changes
+        if: steps.review.outputs.exit_code != '0'
+        run: |
+          echo "::error::Breaking API contract changes detected — see the PR comment."
+          exit 1
