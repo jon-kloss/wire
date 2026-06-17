@@ -16,6 +16,10 @@ import type {
   DriftItem,
   ChainResult,
   ChainStepDef,
+  SnapshotComparison,
+  BreakingReport,
+  SecretCheckResult,
+  DiffEntry,
 } from "./types";
 import type { TreeNode } from "./utils";
 import {
@@ -86,16 +90,57 @@ function driftKey(item: DriftItem): string {
   return `${item.category}:${item.method}:${item.route}`;
 }
 
+/** Editable chain step (the persisted `extract` Record is rebuilt from rows). */
+type ChainDraftStep = {
+  run: string;
+  extracts: Array<{ name: string; path: string }>;
+  persist: boolean;
+};
+
+function stepToDraft(s: ChainStepDef): ChainDraftStep {
+  return {
+    run: s.run,
+    extracts: Object.entries(s.extract ?? {}).map(([name, path]) => ({
+      name,
+      path,
+    })),
+    persist: s.persist ?? false,
+  };
+}
+
+function draftToStep(d: ChainDraftStep): ChainStepDef {
+  const extract: Record<string, string> = {};
+  for (const e of d.extracts) if (e.name.trim()) extract[e.name.trim()] = e.path;
+  const step: ChainStepDef = { run: d.run };
+  if (Object.keys(extract).length) step.extract = extract;
+  if (d.persist) step.persist = true;
+  return step;
+}
+
+/** Compact display of a snapshot diff entry's value(s). */
+function diffValueText(e: DiffEntry): string {
+  const fmt = (v: unknown) => {
+    if (v === undefined) return "";
+    const s = typeof v === "string" ? v : JSON.stringify(v);
+    return s.length > 48 ? s.slice(0, 45) + "…" : s;
+  };
+  if (e.kind === "Changed") return `${fmt(e.old)} → ${fmt(e.new)}`;
+  if (e.kind === "Added") return fmt(e.new);
+  return fmt(e.old);
+}
+
 function TreeItem({
   node,
   depth,
   onSelect,
+  onDelete,
   selectedPath,
   defaultExpanded = true,
 }: {
   node: TreeNode;
   depth: number;
   onSelect: (entry: IpcRequestEntry) => void;
+  onDelete?: (entry: IpcRequestEntry) => void;
   selectedPath: string | null;
   defaultExpanded?: boolean;
 }) {
@@ -116,6 +161,18 @@ function TreeItem({
           {node.entry.method}
         </span>
         <span className="request-name">{node.name}</span>
+        {onDelete && (
+          <button
+            className="tree-delete"
+            title="Delete request"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(node.entry!);
+            }}
+          >
+            &#x2715;
+          </button>
+        )}
       </div>
     );
   }
@@ -145,6 +202,7 @@ function TreeItem({
               node={child}
               depth={depth + 1}
               onSelect={onSelect}
+              onDelete={onDelete}
               selectedPath={selectedPath}
               defaultExpanded={defaultExpanded}
             />
@@ -158,7 +216,57 @@ function TreeItem({
 
 function App() {
   const urlInputRef = useRef<HTMLInputElement>(null);
+  const urlHighlightRef = useRef<HTMLDivElement>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
+  const appGridRef = useRef<HTMLDivElement>(null);
+
+  // Draggable width of the response panel (px). null = default even split.
+  const [responseWidth, setResponseWidth] = useState<number | null>(() => {
+    const saved =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem("wire.responseWidth")
+        : null;
+    const n = saved ? parseInt(saved, 10) : NaN;
+    return Number.isFinite(n) ? n : null;
+  });
+
+  useEffect(() => {
+    if (typeof localStorage === "undefined") return;
+    if (responseWidth == null) localStorage.removeItem("wire.responseWidth");
+    else localStorage.setItem("wire.responseWidth", String(responseWidth));
+  }, [responseWidth]);
+
+  /** Drag the request/response divider to resize the response panel. Uses
+   *  pointer capture so moves keep firing off-element and nothing leaks. */
+  const onColResizeDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+  }, []);
+
+  const onColResizeMove = useCallback((e: React.PointerEvent) => {
+    if (e.buttons !== 1) return; // only while the primary button is held
+    const grid = appGridRef.current;
+    if (!grid) return;
+    const rect = grid.getBoundingClientRect();
+    const w = Math.max(
+      320,
+      Math.min(rect.right - e.clientX, rect.width - 236 - 360)
+    );
+    setResponseWidth(w);
+  }, []);
+
+  const onColResizeUp = useCallback(() => {
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+  }, []);
+
+  // URL bar: overflow ("⋯") menu + hovered-variable tooltip
+  const [urlMenuOpen, setUrlMenuOpen] = useState(false);
+  const [urlVarHover, setUrlVarHover] = useState<{
+    name: string;
+    value: string;
+  } | null>(null);
 
   // Accent theming (Ember / Signal / Pulse) — persisted, applied to <html>
   const { accent, setAccent } = useAccent();
@@ -171,9 +279,13 @@ function App() {
   const [url, setUrl] = useState("");
   const [headersText, setHeadersText] = useState("");
   const [bodyText, setBodyText] = useState("");
+  const [bodyType, setBodyType] = useState<"json" | "text" | "formdata">("json");
+  const [formDataPairs, setFormDataPairs] = useState<
+    Array<{ key: string; value: string; enabled?: boolean }>
+  >([]);
   const [queryParams, setQueryParams] = useState<Array<{ key: string; value: string; enabled?: boolean }>>([]);
   const [activeTab, setActiveTab] = useState<
-    "query" | "headers" | "auth" | "body" | "tests" | "pre-run"
+    "query" | "headers" | "auth" | "body" | "tests" | "chain" | "pre-run"
   >("query");
 
   // Response state
@@ -184,6 +296,8 @@ function App() {
   const [responseSchema, setResponseSchema] = useState<[string, string][]>([]);
   const [error, setError] = useState<string | null>(null);
   const [responseTab, setResponseTab] = useState<"body" | "headers" | "tests">("body");
+  const [snapshotComparison, setSnapshotComparison] = useState<SnapshotComparison | null>(null);
+  const [snapshotMsg, setSnapshotMsg] = useState<string | null>(null);
 
   // Collection state (supports multiple collections)
   const [collections, setCollections] = useState<
@@ -199,6 +313,9 @@ function App() {
   const [envSelectedMap, setEnvSelectedMap] = useState<Record<string, string | null>>({});
   const [envVarsMap, setEnvVarsMap] = useState<Record<string, Record<string, string>>>({});
   const [expandedEnvSections, setExpandedEnvSections] = useState<Set<string>>(new Set());
+  const [newVar, setNewVar] = useState<
+    Record<string, { key: string; value: string }>
+  >({});
   const [expandedTemplateSections, setExpandedTemplateSections] = useState<Set<string>>(new Set());
   const [foldersExpanded, setFoldersExpanded] = useState(true);
   const [selectedRequestPath, setSelectedRequestPath] = useState<string | null>(
@@ -226,6 +343,11 @@ function App() {
   const activeCollection = collections.find((c) => c.path === activeCollectionPath);
   const activeTemplates = activeCollection?.info.templates ?? [];
 
+  // The response Tests tab only exists when there are results; fall back to
+  // Body so a stuck "tests" selection never hides the response.
+  const effRespTab =
+    responseTab === "tests" && testResults.length === 0 ? "body" : responseTab;
+
   // Breadcrumb segments for the title bar: collection / folder… / request
   const breadcrumb: string[] = (() => {
     if (!activeCollection) return [];
@@ -251,8 +373,18 @@ function App() {
   const [selectedDriftIdx, setSelectedDriftIdx] = useState<number | null>(null);
   const [ignoredDrift, setIgnoredDrift] = useState<Set<string>>(new Set());
 
+  // Secret-check state (wire env check)
+  const [secretCheck, setSecretCheck] = useState<SecretCheckResult[] | null>(null);
+  const [secretCheckLoading, setSecretCheckLoading] = useState(false);
+
+  // Breaking-change state (wire breaking)
+  const [breakingReport, setBreakingReport] = useState<BreakingReport | null>(null);
+  const [breakingLoading, setBreakingLoading] = useState(false);
+  const [driftMode, setDriftMode] = useState<"drift" | "breaking">("drift");
+
   // Chain state
   const [chainSteps, setChainSteps] = useState<ChainStepDef[]>([]);
+  const [chainDraft, setChainDraft] = useState<ChainDraftStep[]>([]);
   const [chainResult, setChainResult] = useState<ChainResult | null>(null);
   const [chainLoading, setChainLoading] = useState(false);
   const [expandedChainSteps, setExpandedChainSteps] = useState<Set<number>>(new Set());
@@ -271,6 +403,12 @@ function App() {
 
   // History state
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+
+  // Delete-request confirmation
+  const [confirmDelete, setConfirmDelete] = useState<{
+    path: string;
+    name: string;
+  } | null>(null);
 
   // Prompt modal state (replaces window.prompt which doesn't work in Tauri v2)
   const [promptState, setPromptState] = useState<{
@@ -299,6 +437,15 @@ function App() {
       setHistory(entries.reverse()); // most recent first
     } catch {
       // History is non-critical — silently ignore errors
+    }
+  }, []);
+
+  const handleClearHistory = useCallback(async () => {
+    try {
+      await invoke("clear_history");
+      setHistory([]);
+    } catch (err) {
+      setError(String(err));
     }
   }, []);
 
@@ -375,11 +522,110 @@ function App() {
     }
   }, [activeCollectionPath]);
 
+  /** Validate the active collection's secret references (wire env check). */
+  const handleCheckSecrets = useCallback(
+    async (collectionPath: string) => {
+      if (collectionPath !== activeCollectionPath) {
+        try {
+          await invoke("open_collection", { wireDir: collectionPath });
+          setActiveCollectionPath(collectionPath);
+        } catch {
+          /* will surface below */
+        }
+      }
+      setSecretCheckLoading(true);
+      try {
+        const results = await invoke<SecretCheckResult[]>("check_secrets");
+        setSecretCheck(results);
+      } catch (err) {
+        setError(String(err));
+      } finally {
+        setSecretCheckLoading(false);
+      }
+    },
+    [activeCollectionPath]
+  );
+
+  /** Save the current collection contract as the breaking-change baseline. */
+  const handleSaveBaseline = useCallback(async () => {
+    setBreakingLoading(true);
+    try {
+      await invoke<number>("save_breaking_baseline");
+      const report = await invoke<BreakingReport>("check_breaking");
+      setBreakingReport(report);
+      setDriftMode("breaking");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBreakingLoading(false);
+    }
+  }, []);
+
+  /** Compare the collection contract against the saved baseline. */
+  const handleCheckBreaking = useCallback(async () => {
+    setBreakingLoading(true);
+    setDriftMode("breaking");
+    try {
+      const report = await invoke<BreakingReport>("check_breaking");
+      setBreakingReport(report);
+    } catch {
+      // Most likely no baseline yet — the empty state guides the user to save one.
+      setBreakingReport(null);
+    } finally {
+      setBreakingLoading(false);
+    }
+  }, []);
+
+  /** Create a new (empty) environment file in a collection. */
+  const handleCreateEnvironment = useCallback(
+    async (collectionPath: string) => {
+      const name = await showPrompt("New environment name:", "");
+      if (!name?.trim()) return;
+      const envName = name.trim();
+      try {
+        await invoke("save_environment", {
+          wireDir: collectionPath,
+          envName,
+          variables: {},
+        });
+        const info = await invoke<IpcCollectionInfo>("open_collection", {
+          wireDir: collectionPath,
+        });
+        setCollections((prev) =>
+          prev.map((c) =>
+            c.path === collectionPath ? { info, path: c.path } : c
+          )
+        );
+        setActiveCollectionPath(collectionPath);
+        setExpandedEnvSections((prev) => new Set(prev).add(collectionPath));
+        setEnvSelectedMap((prev) => ({ ...prev, [collectionPath]: envName }));
+        setEnvVarsMap((prev) => ({ ...prev, [collectionPath]: {} }));
+      } catch (err) {
+        setError(String(err));
+      }
+    },
+    [showPrompt]
+  );
+
+  /** Add a new variable to the selected environment. */
+  const handleAddVariable = useCallback(
+    (collectionPath: string, envName: string) => {
+      const draft = newVar[collectionPath] ?? { key: "", value: "" };
+      const key = draft.key.trim();
+      if (!key) return;
+      handleSaveEnvVar(collectionPath, envName, key, draft.value);
+      setNewVar((prev) => ({ ...prev, [collectionPath]: { key: "", value: "" } }));
+    },
+    [newVar, handleSaveEnvVar]
+  );
+
   const handleNewRequest = useCallback(() => {
     setMethod("GET");
     setUrl("");
     setHeadersText("");
     setBodyText("");
+    setBodyType("json");
+    setFormDataPairs([]);
     setQueryParams([]);
     setSelectedRequestPath(null);
     setSelectedRequestName(null);
@@ -391,6 +637,10 @@ function App() {
     setTestResults([]);
     setCurrentAssertions([]);
     setResponseSchema([]);
+    setSnapshotComparison(null);
+    setChainSteps([]);
+    setChainDraft([]);
+    setChainResult(null);
   }, []);
 
   const handleOpenCollection = useCallback(async () => {
@@ -612,6 +862,53 @@ function App() {
     [showPrompt]
   );
 
+  /** Delete a request .wire.yaml from disk and refresh its collection. */
+  const handleDeleteRequest = useCallback(
+    async (filePath: string) => {
+      try {
+        await invoke("delete_request", { file: filePath });
+        const owner = collections.find((c) => filePath.startsWith(c.path));
+        if (owner) {
+          const info = await invoke<IpcCollectionInfo>("open_collection", {
+            wireDir: owner.path,
+          });
+          setCollections((prev) =>
+            prev.map((c) => (c.path === owner.path ? { info, path: c.path } : c))
+          );
+        }
+        if (selectedRequestPath === filePath) {
+          handleNewRequest();
+        }
+      } catch (err) {
+        setError(String(err));
+      }
+    },
+    [collections, selectedRequestPath, handleNewRequest]
+  );
+
+  /** Build the request body from the current body-type + editors.
+   *  Method-agnostic (templates have no method); send/save gate on the method. */
+  const buildBody = useCallback((): WireBody | null => {
+    if (bodyType === "formdata") {
+      const content: Record<string, string> = {};
+      for (const p of formDataPairs) {
+        if (p.key.trim() && p.enabled !== false) content[p.key.trim()] = p.value;
+      }
+      return Object.keys(content).length
+        ? { type: "formdata", content }
+        : null;
+    }
+    if (!bodyText.trim()) return null;
+    if (bodyType === "text") return { type: "text", content: bodyText };
+    try {
+      return { type: "json", content: JSON.parse(bodyText) };
+    } catch {
+      return { type: "text", content: bodyText };
+    }
+  }, [bodyType, bodyText, formDataPairs]);
+
+  const methodHasBody = (m: string) => ["POST", "PUT", "PATCH"].includes(m);
+
   const handleSaveRequest = useCallback(async () => {
     if (!activeCollectionPath) {
       setError("Open or create a collection first to save requests.");
@@ -656,14 +953,7 @@ function App() {
         }
       }
 
-      let body: WireBody | null = null;
-      if (bodyText.trim() && ["POST", "PUT", "PATCH"].includes(method)) {
-        try {
-          body = { type: "json", content: JSON.parse(bodyText) };
-        } catch {
-          body = { type: "text", content: bodyText };
-        }
-      }
+      const body = methodHasBody(method) ? buildBody() : null;
 
       const params: Record<string, string> = {};
       for (const p of queryParams) {
@@ -681,6 +971,7 @@ function App() {
         body,
         extends: extendsTemplate ?? undefined,
         tests: currentAssertions.length > 0 ? currentAssertions : undefined,
+        chain: chainSteps.length > 0 ? chainSteps : undefined,
       };
 
       await invoke("save_request", { path: filePath, request });
@@ -701,7 +992,7 @@ function App() {
     } catch (err) {
       setError(String(err));
     }
-  }, [method, url, headersText, bodyText, queryParams, currentAssertions, activeCollectionPath, selectedRequestPath, selectedRequestName, extendsTemplate, showPrompt]);
+  }, [method, url, headersText, buildBody, queryParams, currentAssertions, chainSteps, activeCollectionPath, selectedRequestPath, selectedRequestName, extendsTemplate, showPrompt]);
 
   const handleSelectRequest = useCallback(
     async (entry: IpcRequestEntry) => {
@@ -727,15 +1018,30 @@ function App() {
           .join("\n");
         setHeadersText(headerLines);
 
-        // Build body text
+        // Build body editors from the request's body
         if (req.body) {
+          setBodyType(req.body.type);
           if (req.body.type === "json") {
             setBodyText(JSON.stringify(req.body.content, null, 2));
+            setFormDataPairs([]);
+          } else if (req.body.type === "formdata") {
+            const content = (req.body.content ?? {}) as Record<string, unknown>;
+            setFormDataPairs(
+              Object.entries(content).map(([key, value]) => ({
+                key,
+                value: String(value),
+                enabled: true,
+              }))
+            );
+            setBodyText("");
           } else {
             setBodyText(String(req.body.content));
+            setFormDataPairs([]);
           }
         } else {
           setBodyText("");
+          setBodyType("json");
+          setFormDataPairs([]);
         }
 
         // Load query params
@@ -776,7 +1082,9 @@ function App() {
         setCurrentAssertions(req.tests ?? []);
         setResponseSchema(req.response_schema ?? []);
         setChainSteps(req.chain ?? []);
+        setChainDraft((req.chain ?? []).map(stepToDraft));
         setChainResult(null);
+        setSnapshotComparison(null);
       } catch (err) {
         setError(String(err));
       }
@@ -804,14 +1112,7 @@ function App() {
         }
       }
 
-      let body: WireBody | null = null;
-      if (bodyText.trim() && ["POST", "PUT", "PATCH"].includes(effMethod)) {
-        try {
-          body = { type: "json", content: JSON.parse(bodyText) };
-        } catch {
-          body = { type: "text", content: bodyText };
-        }
-      }
+      const body = methodHasBody(effMethod) ? buildBody() : null;
 
       const params: Record<string, string> = {};
       for (const p of queryParams) {
@@ -849,12 +1150,93 @@ function App() {
           // Test evaluation is non-critical
         }
       }
+
+      // Compare against a saved golden-file snapshot, if this is a saved request
+      if (selectedRequestPath) {
+        invoke<SnapshotComparison>("compare_response_snapshot", {
+          file: selectedRequestPath,
+          response: result,
+        })
+          .then(setSnapshotComparison)
+          .catch(() => setSnapshotComparison(null));
+      } else {
+        setSnapshotComparison(null);
+      }
     } catch (err) {
       setError(String(err));
     } finally {
       setLoading(false);
     }
   };
+
+  /** Save the current response as this request's golden-file snapshot. */
+  const handleSaveSnapshot = useCallback(async () => {
+    if (!selectedRequestPath || !response) return;
+    try {
+      await invoke("save_response_snapshot", {
+        file: selectedRequestPath,
+        response,
+      });
+      setSnapshotMsg("Snapshot saved");
+      const cmp = await invoke<SnapshotComparison>("compare_response_snapshot", {
+        file: selectedRequestPath,
+        response,
+      });
+      setSnapshotComparison(cmp);
+      window.setTimeout(() => setSnapshotMsg(null), 2500);
+    } catch (err) {
+      setError(String(err));
+    }
+  }, [selectedRequestPath, response]);
+
+  /** Update the chain draft and keep the runnable chainSteps in sync. */
+  const updateChainDraft = useCallback((draft: ChainDraftStep[]) => {
+    setChainDraft(draft);
+    setChainSteps(draft.filter((d) => d.run).map(draftToStep));
+  }, []);
+
+  /** Save the current builder state as a reusable template. */
+  const handleSaveAsTemplate = useCallback(async () => {
+    if (!activeCollectionPath) return;
+    const name = await showPrompt("Template name:", "");
+    if (!name?.trim()) return;
+    const tmplName = name.trim().replace(/\s+/g, "-").toLowerCase();
+    try {
+      const headers: Record<string, string> = {};
+      if (headersText.trim()) {
+        for (const line of headersText.split("\n")) {
+          const idx = line.indexOf(":");
+          if (idx > 0) {
+            headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+          }
+        }
+      }
+      const body = buildBody();
+      const params: Record<string, string> = {};
+      for (const p of queryParams) {
+        if (p.key.trim() && p.enabled !== false) params[p.key.trim()] = p.value;
+      }
+      const tmpl: WireRequest = {
+        name: tmplName,
+        method: "",
+        url: "",
+        headers,
+        params,
+        body,
+      };
+      await invoke("save_template", { name: tmplName, request: tmpl });
+      const info = await invoke<IpcCollectionInfo>("open_collection", {
+        wireDir: activeCollectionPath,
+      });
+      setCollections((prev) =>
+        prev.map((c) =>
+          c.path === activeCollectionPath ? { info, path: c.path } : c
+        )
+      );
+    } catch (err) {
+      setError(String(err));
+    }
+  }, [activeCollectionPath, showPrompt, headersText, buildBody, queryParams]);
 
   const handleRunChain = async () => {
     if (!selectedRequestPath || chainSteps.length === 0) return;
@@ -1256,7 +1638,15 @@ function App() {
         </div>
       </div>
       ) : (
-      <div className="app">
+      <div
+        className="app"
+        ref={appGridRef}
+        style={
+          {
+            "--response-w": responseWidth != null ? `${responseWidth}px` : "1fr",
+          } as React.CSSProperties
+        }
+      >
       {/* Left Panel: Sidebar */}
       <aside className="sidebar">
         <button className="new-request-btn" onClick={handleNewRequest}>
@@ -1282,15 +1672,17 @@ function App() {
           >
             Activity
           </button>
-          <button
-            className={`sidebar-tab ${sidebarTab === "drift" ? "active" : ""}`}
-            onClick={() => {
-              setSidebarTab("drift");
-              setDropdownOpen(false);
-            }}
-          >
-            Drift
-          </button>
+          {collections.length > 0 && (
+            <button
+              className={`sidebar-tab ${sidebarTab === "drift" ? "active" : ""}`}
+              onClick={() => {
+                setSidebarTab("drift");
+                setDropdownOpen(false);
+              }}
+            >
+              Drift
+            </button>
+          )}
         </div>
 
         {sidebarTab === "collections" && (
@@ -1436,7 +1828,7 @@ function App() {
                     </div>
                     {isExpanded && (
                       <div className="collection-body">
-                        {info.environments.length > 0 && (
+                        {(
                           <div className="collection-env-accordion">
                             <div
                               className="collection-env-toggle"
@@ -1459,6 +1851,16 @@ function App() {
                               <span className="collection-count">
                                 {info.environments.length}
                               </span>
+                              <button
+                                className="template-add-btn"
+                                title="New environment"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCreateEnvironment(path);
+                                }}
+                              >
+                                +
+                              </button>
                             </div>
                             {expandedEnvSections.has(path) && (
                               <div className="collection-env-section">
@@ -1487,11 +1889,9 @@ function App() {
                                     </option>
                                   ))}
                                 </select>
-                                {envSelectedMap[path] &&
-                                  envVarsMap[path] &&
-                                  Object.keys(envVarsMap[path]).length > 0 && (
+                                {envSelectedMap[path] && (
                                     <div className="env-vars-editor">
-                                      {Object.entries(envVarsMap[path]).map(([key, value]) => {
+                                      {Object.entries(envVarsMap[path] ?? {}).map(([key, value]) => {
                                         const isSecret = isSecretValue(value);
                                         return (
                                         <div key={key} className="env-var-row">
@@ -1510,8 +1910,104 @@ function App() {
                                         </div>
                                         );
                                       })}
+                                      <div className="env-var-row env-var-add">
+                                        <input
+                                          className="env-var-newkey"
+                                          type="text"
+                                          placeholder="new key"
+                                          value={newVar[path]?.key ?? ""}
+                                          onChange={(e) =>
+                                            setNewVar((prev) => ({
+                                              ...prev,
+                                              [path]: {
+                                                key: e.target.value,
+                                                value: prev[path]?.value ?? "",
+                                              },
+                                            }))
+                                          }
+                                        />
+                                        <input
+                                          className="env-var-input"
+                                          type="text"
+                                          placeholder="value"
+                                          value={newVar[path]?.value ?? ""}
+                                          onChange={(e) =>
+                                            setNewVar((prev) => ({
+                                              ...prev,
+                                              [path]: {
+                                                key: prev[path]?.key ?? "",
+                                                value: e.target.value,
+                                              },
+                                            }))
+                                          }
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter")
+                                              handleAddVariable(
+                                                path,
+                                                envSelectedMap[path]!
+                                              );
+                                          }}
+                                        />
+                                        <button
+                                          className="env-var-addbtn"
+                                          title="Add variable"
+                                          onClick={() =>
+                                            handleAddVariable(
+                                              path,
+                                              envSelectedMap[path]!
+                                            )
+                                          }
+                                        >
+                                          +
+                                        </button>
+                                      </div>
                                     </div>
                                   )}
+                                <div className="secret-check">
+                                  <button
+                                    className="secret-check-btn"
+                                    disabled={secretCheckLoading}
+                                    onClick={() => handleCheckSecrets(path)}
+                                  >
+                                    {secretCheckLoading
+                                      ? "Checking…"
+                                      : "Check secrets"}
+                                  </button>
+                                  {secretCheck &&
+                                    path === activeCollectionPath &&
+                                    (secretCheck.length === 0 ? (
+                                      <div className="secret-check-empty">
+                                        No secret references found.
+                                      </div>
+                                    ) : (
+                                      <div className="secret-check-results">
+                                        {secretCheck.map((r, i) => (
+                                          <div
+                                            key={i}
+                                            className={`secret-check-row ${r.resolved ? "ok" : "err"}`}
+                                          >
+                                            <span className="secret-check-icon">
+                                              {r.resolved ? "✓" : "✗"}
+                                            </span>
+                                            <span className="secret-check-var">
+                                              {r.var_name}
+                                            </span>
+                                            <span className="secret-check-src">
+                                              ${r.source}
+                                            </span>
+                                            {r.error && (
+                                              <span
+                                                className="secret-check-msg"
+                                                title={r.error}
+                                              >
+                                                {r.error}
+                                              </span>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ))}
+                                </div>
                               </div>
                             )}
                           </div>
@@ -1734,6 +2230,12 @@ function App() {
                                 setActiveCollectionPath(path);
                                 handleSelectRequest(entry);
                               }}
+                              onDelete={(entry) =>
+                                setConfirmDelete({
+                                  path: entry.path,
+                                  name: entry.name,
+                                })
+                              }
                               selectedPath={selectedRequestPath}
                               defaultExpanded={foldersExpanded}
                             />
@@ -1750,6 +2252,14 @@ function App() {
 
         {sidebarTab === "activity" && (
           <div className="sidebar-content">
+            {history.length > 0 && (
+              <div className="activity-bar">
+                <span className="activity-count">{history.length} requests</span>
+                <button className="activity-clear" onClick={handleClearHistory}>
+                  Clear
+                </button>
+              </div>
+            )}
             <div className="history-list">
               {history.length === 0 && (
                 <p className="placeholder">No activity yet</p>
@@ -1852,6 +2362,25 @@ function App() {
                 </button>
               )}
             </div>
+            <div className="drift-controls drift-breaking-controls">
+              <span className="drift-controls-label">Contract baseline</span>
+              <button
+                className="drift-check-btn ghost"
+                disabled={breakingLoading || !activeCollectionPath}
+                title="Save the current contract as the breaking-change baseline"
+                onClick={handleSaveBaseline}
+              >
+                Save baseline
+              </button>
+              <button
+                className="drift-check-btn ghost"
+                disabled={breakingLoading || !activeCollectionPath}
+                title="Compare the contract against the saved baseline"
+                onClick={handleCheckBreaking}
+              >
+                {breakingLoading ? "Checking…" : "Check breaking"}
+              </button>
+            </div>
             {collections.filter((c) => c.info.source_dir).length === 0 && (
               <p className="placeholder">No collections from codebase scan</p>
             )}
@@ -1882,9 +2411,98 @@ function App() {
         )}
       </aside>
 
-      {sidebarTab === "drift" ? (
+      {sidebarTab === "drift" && collections.length > 0 ? (
         <section className="driftview">
-          {!driftReport || driftReport.items.length === 0 ? (
+          <div className="driftview-modes">
+            <button
+              className={`driftview-mode ${driftMode === "drift" ? "active" : ""}`}
+              onClick={() => setDriftMode("drift")}
+            >
+              Source drift
+            </button>
+            <button
+              className={`driftview-mode ${driftMode === "breaking" ? "active" : ""}`}
+              onClick={() => setDriftMode("breaking")}
+            >
+              Breaking changes
+            </button>
+          </div>
+          {driftMode === "breaking" ? (
+            !breakingReport ? (
+              <div className="driftview-empty">
+                <p className="placeholder">
+                  No contract baseline yet. Save one to lock in the current API
+                  shape, then check future changes against it.
+                </p>
+                <button
+                  className="drift-sync-main"
+                  disabled={breakingLoading || !activeCollectionPath}
+                  onClick={handleSaveBaseline}
+                >
+                  {breakingLoading ? "Saving…" : "Save baseline"}
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="driftview-strip">
+                  <span className="drift-sev-pill breaking">
+                    BREAKING <b>{breakingReport.breaking_count}</b>
+                  </span>
+                  <span className="drift-sev-pill warning">
+                    WARNING <b>{breakingReport.warning_count}</b>
+                  </span>
+                  <span className="drift-sev-pill info">
+                    INFO <b>{breakingReport.info_count}</b>
+                  </span>
+                  <span className="driftview-meta">
+                    vs baseline {"·"} {breakingReport.changes.length} change
+                    {breakingReport.changes.length !== 1 ? "s" : ""}
+                  </span>
+                  <div className="tb-spacer" />
+                  <button
+                    className="drift-sync-main"
+                    disabled={breakingLoading}
+                    onClick={handleSaveBaseline}
+                    title="Overwrite the baseline with the current contract"
+                  >
+                    Update baseline
+                  </button>
+                </div>
+                {breakingReport.changes.length === 0 ? (
+                  <div className="driftview-empty">
+                    <p className="placeholder">
+                      ✓ No contract changes vs the saved baseline.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="breaking-list">
+                    {breakingReport.changes.map((c, i) => (
+                      <div key={i} className={`driftview-item ${c.severity}`}>
+                        <span className={`driftview-glyph ${c.severity}`}>
+                          {c.severity === "breaking"
+                            ? "✗"
+                            : c.severity === "warning"
+                              ? "⚠"
+                              : "+"}
+                        </span>
+                        <span
+                          className="method-badge"
+                          style={{
+                            color:
+                              METHOD_COLORS[c.method] ?? METHOD_COLOR_FALLBACK,
+                          }}
+                        >
+                          {c.method}
+                        </span>
+                        <span className="driftview-route">{c.route}</span>
+                        <span className="breaking-desc">{c.description}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )
+          ) : !driftReport || driftReport.items.length === 0 ? (
             <div className="driftview-empty">
               <p className="placeholder">
                 {driftReport
@@ -2059,14 +2677,7 @@ function App() {
                     }
                   }
                 }
-                let body: WireBody | null = null;
-                if (bodyText.trim()) {
-                  try {
-                    body = { type: "json", content: JSON.parse(bodyText) };
-                  } catch {
-                    body = { type: "text", content: bodyText };
-                  }
-                }
+                const body = buildBody();
                 const params: Record<string, string> = {};
                 for (const p of queryParams) {
                   if (p.key.trim() && p.enabled !== false) {
@@ -2116,117 +2727,142 @@ function App() {
           <div className="url-input-wrapper">
             <div
               className="url-highlight"
+              ref={urlHighlightRef}
               aria-hidden="true"
               onClick={() => urlInputRef.current?.focus()}
             >
-              {url
-                ? url.split(/(\{\{[^}]+\}\})/).map((part, i) => {
-                    const varMatch = part.match(/^\{\{([^}]+)\}\}$/);
-                    if (varMatch) {
-                      const varName = varMatch[1];
-                      const resolved = activeEnvVars[varName];
-                      return (
-                        <span
-                          key={i}
-                          className="url-variable"
-                          data-tooltip={
-                            resolved !== undefined && resolved !== ""
-                              ? resolved
-                              : "Not Set"
-                          }
-                        >
-                          {part}
-                        </span>
-                      );
-                    }
-                    return <span key={i}>{part}</span>;
-                  })
-                : <span className="url-placeholder">Enter request URL...</span>}
+              {url ? (
+                url.split(/(\{\{[^}]+\}\})/).map((part, i) => {
+                  const varMatch = part.match(/^\{\{([^}]+)\}\}$/);
+                  if (varMatch) {
+                    const varName = varMatch[1];
+                    const resolved = activeEnvVars[varName];
+                    return (
+                      <span
+                        key={i}
+                        className="url-variable"
+                        onMouseEnter={() =>
+                          setUrlVarHover({
+                            name: varName,
+                            value:
+                              resolved !== undefined && resolved !== ""
+                                ? resolved
+                                : "",
+                          })
+                        }
+                        onMouseLeave={() => setUrlVarHover(null)}
+                      >
+                        {part}
+                      </span>
+                    );
+                  }
+                  return <span key={i}>{part}</span>;
+                })
+              ) : (
+                <span className="url-placeholder">Enter request URL\u2026</span>
+              )}
             </div>
             <input
               ref={urlInputRef}
               className="url-input"
               type="text"
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={(e) => {
+                setUrl(e.target.value);
+                setUrlVarHover(null);
+                // Sync after the input reflows with its new value/scroll.
+                requestAnimationFrame(() => {
+                  if (urlHighlightRef.current && urlInputRef.current)
+                    urlHighlightRef.current.scrollLeft =
+                      urlInputRef.current.scrollLeft;
+                });
+              }}
+              onScroll={(e) => {
+                if (urlHighlightRef.current)
+                  urlHighlightRef.current.scrollLeft = e.currentTarget.scrollLeft;
+              }}
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
             />
+            {urlVarHover && (
+              <div className="url-var-tip">
+                <span className="url-var-tip-name">
+                  {"{{"}
+                  {urlVarHover.name}
+                  {"}}"}
+                </span>
+                <span className="url-var-tip-eq">=</span>
+                <span
+                  className={`url-var-tip-val ${urlVarHover.value ? "" : "unset"}`}
+                >
+                  {urlVarHover.value || "not set"}
+                </span>
+              </div>
+            )}
           </div>
-          <button className="send-btn" onClick={() => handleSend()} disabled={loading || chainLoading}>
-            {loading ? "Sending..." : "Send"}
+          <button
+            className="send-btn"
+            onClick={() => handleSend()}
+            disabled={loading || chainLoading}
+          >
+            {loading ? "Sending\u2026" : "Send"}
           </button>
-          {chainSteps.length > 0 && (
-            <button className="chain-btn" onClick={handleRunChain} disabled={loading || chainLoading}>
-              {chainLoading ? "Running..." : `Run Chain (${chainSteps.length})`}
-            </button>
-          )}
           <button className="save-btn" onClick={handleSaveRequest}>
             Save
           </button>
-          <button
-            className={`secrets-toggle-btn ${secretsRevealed ? "revealed" : ""}`}
-            onClick={() => setSecretsRevealed(!secretsRevealed)}
-            title={secretsRevealed ? "Hide secret values" : "Reveal secret values"}
-          >
-            {secretsRevealed ? "\uD83D\uDD13" : "\uD83D\uDD12"}
-          </button>
-          {activeCollectionPath && (
+          <div className="url-menu-wrap">
             <button
-              className="save-template-btn"
-              onClick={async () => {
-                const name = await showPrompt("Template name:", "");
-                if (!name?.trim()) return;
-                const tmplName = name.trim().replace(/\s+/g, "-").toLowerCase();
-                try {
-                  const headers: Record<string, string> = {};
-                  if (headersText.trim()) {
-                    for (const line of headersText.split("\n")) {
-                      const idx = line.indexOf(":");
-                      if (idx > 0) {
-                        headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-                      }
-                    }
-                  }
-                  let body: WireBody | null = null;
-                  if (bodyText.trim() && ["POST", "PUT", "PATCH"].includes(method)) {
-                    try {
-                      body = { type: "json", content: JSON.parse(bodyText) };
-                    } catch {
-                      body = { type: "text", content: bodyText };
-                    }
-                  }
-                  const params: Record<string, string> = {};
-                  for (const p of queryParams) {
-                    if (p.key.trim() && p.enabled !== false) {
-                      params[p.key.trim()] = p.value;
-                    }
-                  }
-                  const tmpl: WireRequest = {
-                    name: tmplName,
-                    method: "",
-                    url: "",
-                    headers,
-                    params,
-                    body,
-                  };
-                  await invoke("save_template", { name: tmplName, request: tmpl });
-                  // Refresh collection to pick up new template
-                  const info = await invoke<IpcCollectionInfo>("open_collection", {
-                    wireDir: activeCollectionPath,
-                  });
-                  setCollections((prev) =>
-                    prev.map((c) =>
-                      c.path === activeCollectionPath ? { info, path: c.path } : c
-                    )
-                  );
-                } catch (err) {
-                  setError(String(err));
-                }
-              }}
+              className="url-menu-btn"
+              title="More actions"
+              aria-label="More actions"
+              onClick={() => setUrlMenuOpen((o) => !o)}
             >
-              Save as Template
+              {"\u22EF"}
             </button>
-          )}
+            {urlMenuOpen && (
+              <>
+                <div
+                  className="dropdown-backdrop"
+                  onClick={() => setUrlMenuOpen(false)}
+                />
+                <div className="url-menu">
+                  {chainSteps.length > 0 && (
+                    <button
+                      className="url-menu-item"
+                      disabled={loading || chainLoading}
+                      onClick={() => {
+                        setUrlMenuOpen(false);
+                        handleRunChain();
+                      }}
+                    >
+                      {chainLoading
+                        ? "Running\u2026"
+                        : `Run chain (${chainSteps.length})`}
+                    </button>
+                  )}
+                  <button
+                    className="url-menu-item"
+                    onClick={() => {
+                      setSecretsRevealed((v) => !v);
+                      setUrlMenuOpen(false);
+                    }}
+                  >
+                    {secretsRevealed ? "Hide secret values" : "Reveal secret values"}
+                  </button>
+                  {activeCollectionPath && (
+                    <button
+                      className="url-menu-item"
+                      onClick={() => {
+                        setUrlMenuOpen(false);
+                        handleSaveAsTemplate();
+                      }}
+                    >
+                      Save as template
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
         )}
         {!isEditingTemplate && activeTemplates.length > 0 && (
@@ -2310,6 +2946,15 @@ function App() {
               )}
             </button>
             <button
+              className={`tab ${activeTab === "chain" ? "active" : ""}`}
+              onClick={() => setActiveTab("chain")}
+            >
+              Chain
+              {chainDraft.length > 0 && (
+                <span className="tab-count">{chainDraft.length}</span>
+              )}
+            </button>
+            <button
               className={`tab ${activeTab === "pre-run" ? "active" : ""}`}
               onClick={() => setActiveTab("pre-run")}
             >
@@ -2381,42 +3026,139 @@ function App() {
             )}
             {activeTab === "auth" && (
               <div className="tab-placeholder">
-                <p className="placeholder">Authentication</p>
+                <div className="coming-soon">
+                  <span className="coming-soon-badge">Coming soon</span>
+                  <p className="coming-soon-title">Auth helpers</p>
+                  <p className="coming-soon-sub">
+                    For now, add auth via the <strong>Headers</strong> tab (e.g.{" "}
+                    <code>Authorization: Bearer {"{{token}}"}</code>) or an{" "}
+                    <strong>environment</strong> variable / template.
+                  </p>
+                </div>
               </div>
             )}
             {activeTab === "body" && (
-              <Suspense
-                fallback={
-                  <textarea
-                    className="editor-area"
-                    placeholder={'{\n  "key": "value"\n}'}
-                    value={bodyText}
-                    onChange={(e) => setBodyText(e.target.value)}
-                  />
-                }
-              >
-                <MonacoEditor
-                  height="100%"
-                  defaultLanguage="json"
-                  theme={WIRE_MONACO_THEME}
-                  beforeMount={defineWireMonacoTheme}
-                  value={bodyText}
-                  onChange={(value) => setBodyText(value ?? "")}
-                  options={{
-                    minimap: { enabled: false },
-                    lineNumbers: "on",
-                    wordWrap: "on",
-                    scrollBeyondLastLine: false,
-                    fontSize: 12.5,
-                    lineHeight: 1.85,
-                    fontFamily:
-                      '"JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas", monospace',
-                    padding: { top: 12, bottom: 12 },
-                    renderLineHighlight: "all",
-                    automaticLayout: true,
-                  }}
-                />
-              </Suspense>
+              <div className="body-tab">
+                <div className="body-type-row">
+                  <div className="body-type-chips">
+                    {(["json", "text", "formdata"] as const).map((t) => (
+                      <button
+                        key={t}
+                        className={`body-type-chip ${bodyType === t ? "active" : ""}`}
+                        onClick={() => setBodyType(t)}
+                      >
+                        {t === "json"
+                          ? "JSON"
+                          : t === "text"
+                            ? "Text"
+                            : "Form Data"}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="body-type-mime">
+                    {bodyType === "json"
+                      ? "application/json"
+                      : bodyType === "text"
+                        ? "text/plain"
+                        : "x-www-form-urlencoded"}
+                  </span>
+                </div>
+                {bodyType === "formdata" ? (
+                  <div className="formdata-editor">
+                    {(formDataPairs.length > 0
+                      ? formDataPairs
+                      : [{ key: "", value: "", enabled: true }]
+                    ).map((p, i) => (
+                      <div key={i} className="query-param-row">
+                        <input
+                          type="checkbox"
+                          className="query-param-checkbox"
+                          checked={p.enabled !== false}
+                          onChange={(e) => {
+                            const updated = [...formDataPairs];
+                            if (i >= updated.length)
+                              updated.push({
+                                key: "",
+                                value: "",
+                                enabled: e.target.checked,
+                              });
+                            else
+                              updated[i] = {
+                                ...updated[i],
+                                enabled: e.target.checked,
+                              };
+                            setFormDataPairs(updated);
+                          }}
+                        />
+                        <input
+                          className="query-param-key"
+                          type="text"
+                          placeholder="key"
+                          value={p.key}
+                          onChange={(e) => {
+                            const updated =
+                              formDataPairs.length > 0
+                                ? [...formDataPairs]
+                                : [{ key: "", value: "", enabled: true }];
+                            updated[i] = { ...updated[i], key: e.target.value };
+                            if (i === updated.length - 1 && e.target.value)
+                              updated.push({ key: "", value: "", enabled: true });
+                            setFormDataPairs(updated);
+                          }}
+                        />
+                        <input
+                          className="query-param-value"
+                          type="text"
+                          placeholder="value"
+                          value={p.value}
+                          onChange={(e) => {
+                            const updated =
+                              formDataPairs.length > 0
+                                ? [...formDataPairs]
+                                : [{ key: "", value: "", enabled: true }];
+                            updated[i] = { ...updated[i], value: e.target.value };
+                            setFormDataPairs(updated);
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="body-editor-wrap">
+                    <Suspense
+                      fallback={
+                        <textarea
+                          className="editor-area"
+                          value={bodyText}
+                          onChange={(e) => setBodyText(e.target.value)}
+                        />
+                      }
+                    >
+                      <MonacoEditor
+                        height="100%"
+                        language={bodyType === "json" ? "json" : "plaintext"}
+                        theme={WIRE_MONACO_THEME}
+                        beforeMount={defineWireMonacoTheme}
+                        value={bodyText}
+                        onChange={(value) => setBodyText(value ?? "")}
+                        options={{
+                          minimap: { enabled: false },
+                          lineNumbers: "on",
+                          wordWrap: "on",
+                          scrollBeyondLastLine: false,
+                          fontSize: 12.5,
+                          lineHeight: 1.85,
+                          fontFamily:
+                            '"JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas", monospace',
+                          padding: { top: 12, bottom: 12 },
+                          renderLineHighlight: "all",
+                          automaticLayout: true,
+                        }}
+                      />
+                    </Suspense>
+                  </div>
+                )}
+              </div>
             )}
             {activeTab === "tests" && (
               <div className="test-results-panel tests-2col">
@@ -2624,94 +3366,316 @@ function App() {
                 </div>
 
                 <div className="tests-right">
-                  {(() => {
-                    const snapName =
-                      (selectedRequestName ?? "request")
-                        .replace(/\s+/g, "-")
-                        .toLowerCase();
-                    return (
-                      <div className="snap-head">
-                        <span className="snap-dot" />
-                        <span className="snap-path">
-                          .wire/snapshots/
-                          <span className="accent">{snapName}.json</span>
-                        </span>
-                      </div>
-                    );
-                  })()}
-                  {!response ? (
+                  <div className="snap-head">
+                    <span className="snap-dot" />
+                    <span className="snap-path">
+                      .wire/snapshots/
+                      <span className="accent">
+                        {(selectedRequestName ?? "request")
+                          .replace(/\s+/g, "-")
+                          .toLowerCase()}
+                        .json
+                      </span>
+                    </span>
+                    {response && selectedRequestPath && (
+                      <button className="snap-save-btn" onClick={handleSaveSnapshot}>
+                        {snapshotComparison?.exists
+                          ? "Update snapshot"
+                          : "Save snapshot"}
+                      </button>
+                    )}
+                  </div>
+                  {!selectedRequestPath ? (
                     <div className="snap-empty">
-                      Send a request to capture a response snapshot. Save with{" "}
-                      <code>wire send --snapshot</code> to detect future
-                      regressions.
+                      Save this request to a collection to capture response
+                      snapshots and catch regressions.
                     </div>
-                  ) : responseSchema.length > 0 ? (
-                    (() => {
-                      const respKeys = (() => {
-                        try {
-                          const b = JSON.parse(response.body);
-                          return b && typeof b === "object" && !Array.isArray(b)
-                            ? Object.keys(b)
-                            : [];
-                        } catch {
-                          return [];
-                        }
-                      })();
-                      const lower = (s: string) => s.toLowerCase();
-                      const respLower = respKeys.map(lower);
-                      const schemaNames = responseSchema.map(([n]) => n);
-                      const schemaLower = schemaNames.map(lower);
-                      const removed = schemaNames.filter(
-                        (n) => !respLower.includes(lower(n))
-                      );
-                      const added = respKeys.filter(
-                        (k) => !schemaLower.includes(lower(k))
-                      );
-                      return (
-                        <>
-                          <div className="snap-diff">
-                            {schemaNames.map((n) => {
-                              const present = respLower.includes(lower(n));
-                              return (
-                                <div
-                                  key={`s-${n}`}
-                                  className={`snap-line ${present ? "same" : "removed"}`}
-                                >
-                                  <span className="snap-glyph">
-                                    {present ? " " : "−"}
-                                  </span>
-                                  <span className="snap-field">{n}</span>
-                                </div>
-                              );
-                            })}
-                            {added.map((k) => (
-                              <div key={`a-${k}`} className="snap-line added">
-                                <span className="snap-glyph">+</span>
-                                <span className="snap-field">{k}</span>
-                              </div>
-                            ))}
-                          </div>
-                          <div className="snap-foot">
-                            <span className="snap-foot-added">+{added.length}</span>
-                            <span className="snap-foot-removed">
-                              −{removed.length}
-                            </span>
-                            <span className="snap-foot-label">
-                              schema vs response
-                            </span>
-                          </div>
-                        </>
-                      );
-                    })()
+                  ) : !response ? (
+                    <div className="snap-empty">
+                      Send the request, then save a snapshot to lock in the
+                      expected response. Future sends diff against it.
+                    </div>
+                  ) : !snapshotComparison || !snapshotComparison.exists ? (
+                    <div className="snap-empty">
+                      No snapshot saved yet.{" "}
+                      <button
+                        className="snap-inline-link"
+                        onClick={handleSaveSnapshot}
+                      >
+                        Save the current response
+                      </button>{" "}
+                      as the baseline.
+                    </div>
+                  ) : snapshotComparison.entries.length === 0 &&
+                    snapshotComparison.status_old ===
+                      snapshotComparison.status_new ? (
+                    <div className="snap-match">✓ Matches snapshot</div>
                   ) : (
-                    <pre className="snap-body">{formatBody(response.body)}</pre>
+                    <>
+                      <div className="snap-diff">
+                        {snapshotComparison.status_old !==
+                          snapshotComparison.status_new && (
+                          <div className="snap-line changed">
+                            <span className="snap-glyph">~</span>
+                            <span className="snap-field">status</span>
+                            <span className="snap-vals">
+                              {snapshotComparison.status_old} →{" "}
+                              {snapshotComparison.status_new}
+                            </span>
+                          </div>
+                        )}
+                        {snapshotComparison.entries.map((e, i) => {
+                          const cls =
+                            e.kind === "Added"
+                              ? "added"
+                              : e.kind === "Removed"
+                                ? "removed"
+                                : "changed";
+                          const glyph =
+                            e.kind === "Added"
+                              ? "+"
+                              : e.kind === "Removed"
+                                ? "−"
+                                : "~";
+                          return (
+                            <div key={i} className={`snap-line ${cls}`}>
+                              <span className="snap-glyph">{glyph}</span>
+                              <span className="snap-field">
+                                {e.path || "(root)"}
+                              </span>
+                              <span className="snap-vals">
+                                {diffValueText(e)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="snap-foot">
+                        <span className="snap-foot-added">
+                          +
+                          {
+                            snapshotComparison.entries.filter(
+                              (e) => e.kind === "Added"
+                            ).length
+                          }
+                        </span>
+                        <span className="snap-foot-removed">
+                          −
+                          {
+                            snapshotComparison.entries.filter(
+                              (e) => e.kind === "Removed"
+                            ).length
+                          }
+                        </span>
+                        <span className="snap-foot-changed">
+                          ~
+                          {
+                            snapshotComparison.entries.filter(
+                              (e) => e.kind === "Changed"
+                            ).length
+                          }
+                        </span>
+                        <span className="snap-foot-label">vs snapshot</span>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
             )}
+            {activeTab === "chain" && (
+              <div className="chain-builder">
+                <div className="chain-builder-head">
+                  <h3 className="chain-builder-title">Chain steps</h3>
+                  <span className="chain-builder-hint">
+                    Each step runs a saved request; extract values to reuse as{" "}
+                    {"{{var}}"} in later steps.
+                  </span>
+                </div>
+                {(() => {
+                  const prefix = activeCollection
+                    ? activeCollection.path + "/requests/"
+                    : "";
+                  const runOptions = (activeCollection?.info.requests ?? []).map(
+                    (r) => {
+                      const rel = r.path.startsWith(prefix)
+                        ? r.path.slice(prefix.length).replace(/\.wire\.yaml$/, "")
+                        : r.name;
+                      return rel;
+                    }
+                  );
+                  const set = (d: ChainDraftStep[]) => updateChainDraft(d);
+                  return (
+                    <>
+                      {chainDraft.length === 0 && (
+                        <p className="placeholder">
+                          No steps yet — add a request to build a chain.
+                        </p>
+                      )}
+                      {chainDraft.map((step, i) => (
+                        <div key={i} className="chainb-card">
+                          <div className="chainb-head">
+                            <span className="chainb-num">{i + 1}</span>
+                            <select
+                              className="chainb-run"
+                              value={step.run}
+                              onChange={(e) => {
+                                const d = [...chainDraft];
+                                d[i] = { ...d[i], run: e.target.value };
+                                set(d);
+                              }}
+                            >
+                              <option value="">Select request…</option>
+                              {runOptions.map((o) => (
+                                <option key={o} value={o}>
+                                  {o}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              className="chainb-icon"
+                              disabled={i === 0}
+                              title="Move up"
+                              onClick={() => {
+                                const d = [...chainDraft];
+                                [d[i - 1], d[i]] = [d[i], d[i - 1]];
+                                set(d);
+                              }}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              className="chainb-icon"
+                              disabled={i === chainDraft.length - 1}
+                              title="Move down"
+                              onClick={() => {
+                                const d = [...chainDraft];
+                                [d[i + 1], d[i]] = [d[i], d[i + 1]];
+                                set(d);
+                              }}
+                            >
+                              ↓
+                            </button>
+                            <button
+                              className="chainb-icon chainb-del"
+                              title="Remove step"
+                              onClick={() =>
+                                set(chainDraft.filter((_, j) => j !== i))
+                              }
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          <div className="chainb-extracts">
+                            <span className="chainb-extract-label">EXTRACTS</span>
+                            {step.extracts.map((ex, j) => (
+                              <div key={j} className="chainb-extract-row">
+                                <input
+                                  className="chainb-extract-name"
+                                  placeholder="var"
+                                  value={ex.name}
+                                  onChange={(e) => {
+                                    const d = [...chainDraft];
+                                    const ex2 = [...d[i].extracts];
+                                    ex2[j] = { ...ex2[j], name: e.target.value };
+                                    d[i] = { ...d[i], extracts: ex2 };
+                                    set(d);
+                                  }}
+                                />
+                                <span className="chainb-arrow">←</span>
+                                <input
+                                  className="chainb-extract-path"
+                                  placeholder="body.token"
+                                  value={ex.path}
+                                  onChange={(e) => {
+                                    const d = [...chainDraft];
+                                    const ex2 = [...d[i].extracts];
+                                    ex2[j] = { ...ex2[j], path: e.target.value };
+                                    d[i] = { ...d[i], extracts: ex2 };
+                                    set(d);
+                                  }}
+                                />
+                                <button
+                                  className="chainb-icon chainb-del"
+                                  title="Remove extract"
+                                  onClick={() => {
+                                    const d = [...chainDraft];
+                                    d[i] = {
+                                      ...d[i],
+                                      extracts: d[i].extracts.filter(
+                                        (_, k) => k !== j
+                                      ),
+                                    };
+                                    set(d);
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                            <button
+                              className="chainb-add-extract"
+                              onClick={() => {
+                                const d = [...chainDraft];
+                                d[i] = {
+                                  ...d[i],
+                                  extracts: [
+                                    ...d[i].extracts,
+                                    { name: "", path: "" },
+                                  ],
+                                };
+                                set(d);
+                              }}
+                            >
+                              + extract
+                            </button>
+                          </div>
+                          <label className="chainb-persist">
+                            <input
+                              type="checkbox"
+                              checked={step.persist}
+                              onChange={(e) => {
+                                const d = [...chainDraft];
+                                d[i] = { ...d[i], persist: e.target.checked };
+                                set(d);
+                              }}
+                            />
+                            Persist extracted vars to the environment
+                          </label>
+                        </div>
+                      ))}
+                      <button
+                        className="chainb-add-step"
+                        onClick={() =>
+                          set([
+                            ...chainDraft,
+                            { run: "", extracts: [], persist: false },
+                          ])
+                        }
+                      >
+                        + Add step
+                      </button>
+                      {chainDraft.length > 0 && (
+                        <p className="chainb-save-hint">
+                          Press <strong>Save</strong> to write the chain, then{" "}
+                          <strong>Run Chain</strong> to execute it.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
             {activeTab === "pre-run" && (
               <div className="tab-placeholder">
-                <p className="placeholder">Pre-request Script</p>
+                <div className="coming-soon">
+                  <span className="coming-soon-badge">Coming soon</span>
+                  <p className="coming-soon-title">Pre-request scripts</p>
+                  <p className="coming-soon-sub">
+                    Scriptable pre-request hooks aren't part of Wire yet. Use{" "}
+                    <strong>chains</strong> to feed one request's output into the
+                    next, or environment variables for setup.
+                  </p>
+                </div>
               </div>
             )}
           </div>
@@ -2720,6 +3684,15 @@ function App() {
 
       {/* Right Panel: Response Viewer */}
       <section className="response-viewer">
+        <div
+          className="col-resizer"
+          onPointerDown={onColResizeDown}
+          onPointerMove={onColResizeMove}
+          onPointerUp={onColResizeUp}
+          onPointerCancel={onColResizeUp}
+          onDoubleClick={() => setResponseWidth(null)}
+          title="Drag to resize · double-click to reset"
+        />
         <div className="response-header">
           {response ? (
             <>
@@ -2739,6 +3712,18 @@ function App() {
                 {formatBytes(response.size_bytes)}
               </span>
               <div className="tb-spacer" />
+              {snapshotMsg && (
+                <span className="response-snap-msg">{snapshotMsg}</span>
+              )}
+              {selectedRequestPath && (
+                <button
+                  className="response-action"
+                  title="Save this response as the golden-file snapshot"
+                  onClick={handleSaveSnapshot}
+                >
+                  Snapshot
+                </button>
+              )}
               <button
                 className="response-action"
                 title="Copy response body"
@@ -2791,7 +3776,7 @@ function App() {
                 </button>
               )}
             </div>
-            {responseTab === "body" ? (
+            {effRespTab === "body" ? (
               <div className="response-body-wrap">
                 <Suspense
                   fallback={
@@ -2823,7 +3808,7 @@ function App() {
                   />
                 </Suspense>
               </div>
-            ) : responseTab === "headers" ? (
+            ) : effRespTab === "headers" ? (
               <div className="panel-body">
                 <div className="response-headers">
                   {Object.entries(response.headers).map(([key, value]) => (
@@ -3117,6 +4102,37 @@ function App() {
             setPromptState(null);
           }}
         />
+      )}
+
+      {confirmDelete && (
+        <div className="prompt-backdrop" onClick={() => setConfirmDelete(null)}>
+          <div className="prompt-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="prompt-title">
+              Delete request “{confirmDelete.name}”?
+            </div>
+            <p className="confirm-sub">
+              This removes the <code>.wire.yaml</code> file from disk and can't
+              be undone.
+            </p>
+            <div className="prompt-actions">
+              <button
+                className="prompt-btn prompt-cancel"
+                onClick={() => setConfirmDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="prompt-btn prompt-delete"
+                onClick={() => {
+                  handleDeleteRequest(confirmDelete.path);
+                  setConfirmDelete(null);
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

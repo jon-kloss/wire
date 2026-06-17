@@ -32,6 +32,12 @@ pub fn run() {
             commands::fix_drift,
             commands::toggle_default_template,
             commands::run_chain,
+            commands::save_response_snapshot,
+            commands::compare_response_snapshot,
+            commands::delete_request,
+            commands::save_breaking_baseline,
+            commands::check_breaking,
+            commands::check_secrets,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Wire");

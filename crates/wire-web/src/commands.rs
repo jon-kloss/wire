@@ -879,3 +879,161 @@ fn is_editable_source(name: &str) -> bool {
         .map(|(_, ext)| EXTS.contains(&ext))
         .unwrap_or(false)
 }
+
+// ---------------------------------------------------------------------------
+// Snapshots, breaking changes, secret checks, request deletion — CLI parity.
+// ---------------------------------------------------------------------------
+
+/// Path of a request file relative to the collection dir, for snapshot mapping.
+fn snapshot_relative(wire_dir: &Path, file: &Path) -> AppResult<String> {
+    file.strip_prefix(wire_dir)
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .map_err(|_| {
+            AppError(format!(
+                "Request file is not inside the collection: {}",
+                file.display()
+            ))
+        })
+}
+
+/// Save the given response as the golden-file snapshot for a request.
+pub async fn save_response_snapshot(
+    Extension(session): Session,
+    Json(args): Json<SnapshotArgs>,
+) -> AppResult<Json<String>> {
+    let file = sandbox_path(&session, &args.file)?;
+    let wire_dir = {
+        let inner = session.inner.lock().await;
+        inner
+            .collection_path
+            .clone()
+            .ok_or_else(|| AppError("Open a collection to save snapshots.".to_string()))?
+    };
+    let rel = snapshot_relative(&wire_dir, &file)?;
+    let snap = wire_core::snapshot::snapshot_from_response(
+        args.response.status,
+        &args.response.headers,
+        &args.response.body,
+    );
+    let path =
+        wire_core::snapshot::save_snapshot(&snap, &wire_dir, &rel).map_err(|e| e.to_string())?;
+    Ok(Json(path.to_string_lossy().to_string()))
+}
+
+/// Compare a fresh response against the saved snapshot (honoring `snapshot.ignore`).
+pub async fn compare_response_snapshot(
+    Extension(session): Session,
+    Json(args): Json<SnapshotArgs>,
+) -> AppResult<Json<SnapshotComparison>> {
+    let file = sandbox_path(&session, &args.file)?;
+    let wire_dir = {
+        let inner = session.inner.lock().await;
+        inner
+            .collection_path
+            .clone()
+            .ok_or_else(|| AppError("Open a collection to compare snapshots.".to_string()))?
+    };
+    let rel = snapshot_relative(&wire_dir, &file)?;
+    let saved = wire_core::snapshot::load_snapshot(&wire_dir, &rel).map_err(|e| e.to_string())?;
+    let current = wire_core::snapshot::snapshot_from_response(
+        args.response.status,
+        &args.response.headers,
+        &args.response.body,
+    );
+    match saved {
+        None => Ok(Json(SnapshotComparison {
+            exists: false,
+            status_old: 0,
+            status_new: current.status,
+            entries: Vec::new(),
+        })),
+        Some(saved) => {
+            let ignore = load_request(&file)
+                .ok()
+                .and_then(|r| r.snapshot)
+                .map(|s| s.ignore)
+                .unwrap_or_default();
+            let rules = wire_core::diff::ignore::parse_ignore_rules(&ignore);
+            let diff = wire_core::diff::structural_diff(&saved.body, &current.body);
+            let entries = wire_core::diff::ignore::filter_diffs(diff, &rules);
+            Ok(Json(SnapshotComparison {
+                exists: true,
+                status_old: saved.status,
+                status_new: current.status,
+                entries,
+            }))
+        }
+    }
+}
+
+/// Delete a request `.wire.yaml` file (within the sandbox).
+pub async fn delete_request(
+    Extension(session): Session,
+    Json(args): Json<DeleteRequestArgs>,
+) -> AppResult<Json<()>> {
+    let file = sandbox_path(&session, &args.file)?;
+    std::fs::remove_file(&file).map_err(|e| e.to_string())?;
+    Ok(Json(()))
+}
+
+/// Save the current collection's contract as the breaking-change baseline.
+pub async fn save_breaking_baseline(Extension(session): Session) -> AppResult<Json<usize>> {
+    let wire_dir = {
+        let inner = session.inner.lock().await;
+        inner
+            .collection_path
+            .clone()
+            .ok_or_else(|| AppError("Open a collection to save a contract baseline.".to_string()))?
+    };
+    let (snapshot, _path) =
+        wire_core::breaking::save_snapshot(&wire_dir).map_err(|e| e.to_string())?;
+    Ok(Json(snapshot.endpoints.len()))
+}
+
+/// Compare the current collection contract against the saved baseline.
+pub async fn check_breaking(
+    Extension(session): Session,
+) -> AppResult<Json<wire_core::breaking::BreakingReport>> {
+    let wire_dir = {
+        let inner = session.inner.lock().await;
+        inner
+            .collection_path
+            .clone()
+            .ok_or_else(|| AppError("Open a collection to check breaking changes.".to_string()))?
+    };
+    Ok(Json(
+        wire_core::breaking::compare(&wire_dir).map_err(|e| e.to_string())?,
+    ))
+}
+
+/// Validate every secret reference in the collection's environments.
+pub async fn check_secrets(
+    Extension(session): Session,
+) -> AppResult<Json<Vec<wire_core::variables::secrets::SecretCheckResult>>> {
+    // Snapshot what we need and release the shared session lock before doing
+    // filesystem I/O (.env reads) so other commands on this session aren't blocked.
+    let (environments, project_dir) = {
+        let inner = session.inner.lock().await;
+        let collection = inner
+            .collection
+            .as_ref()
+            .ok_or_else(|| AppError("Open a collection to check secrets.".to_string()))?;
+        let project_dir = collection
+            .metadata
+            .source_dir
+            .as_ref()
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                inner
+                    .collection_path
+                    .as_ref()
+                    .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            });
+        (collection.environments.clone(), project_dir)
+    };
+    let results = wire_core::variables::secrets::check_collection_secrets(
+        &environments,
+        project_dir.as_deref(),
+    );
+    Ok(Json(results))
+}

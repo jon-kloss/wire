@@ -56,7 +56,7 @@ pub fn resolve_secret(secret: &SecretRef, project_dir: Option<&Path>) -> Result<
 }
 
 /// Result of checking a single secret reference.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SecretCheckResult {
     pub env_name: String,
     pub var_name: String,
