@@ -3221,3 +3221,600 @@
   color: var(--text-faint);
   margin-left: auto;
 }
+
+/* ── Snapshot diff (real golden-file, replaces schema stopgap) ─────── */
+.response-snap-msg {
+  font-size: 11.5px;
+  color: var(--ok);
+  font-family: var(--font-mono);
+}
+
+.snap-save-btn {
+  margin-left: auto;
+  background: var(--surface-2);
+  color: var(--accent-bright);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.snap-save-btn:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.snap-inline-link {
+  background: none;
+  border: none;
+  color: var(--accent-bright);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.snap-match {
+  padding: 24px 20px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ok);
+}
+
+.snap-line {
+  gap: 10px;
+}
+.snap-line.changed {
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  color: var(--warn);
+}
+.snap-vals {
+  margin-left: auto;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 50%;
+}
+.snap-line.removed .snap-vals {
+  color: color-mix(in srgb, var(--err) 70%, var(--text-dim));
+}
+.snap-foot-changed {
+  color: var(--warn);
+}
+
+/* ── Secret check (wire env check) ────────────────────────────────── */
+.secret-check {
+  padding: 8px 0 2px;
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+}
+
+.secret-check-btn {
+  background: var(--surface-1);
+  color: var(--text-mid);
+  border: 1px solid var(--line-3);
+  border-radius: 7px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.secret-check-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-1) 60%, #fff 6%);
+  color: var(--text-hi);
+}
+.secret-check-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.secret-check-empty {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.secret-check-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.secret-check-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.secret-check-icon {
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.secret-check-row.ok .secret-check-icon {
+  color: var(--ok);
+}
+.secret-check-row.err .secret-check-icon {
+  color: var(--err);
+}
+
+.secret-check-var {
+  color: var(--syn-key);
+}
+.secret-check-src {
+  color: var(--text-faint);
+}
+.secret-check-msg {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: auto;
+  max-width: 45%;
+}
+.secret-check-row.err .secret-check-msg {
+  color: var(--err);
+}
+
+/* ── Breaking changes view ────────────────────────────────────────── */
+.driftview-modes {
+  display: flex;
+  gap: 4px;
+  padding: 10px 16px 0;
+  flex-shrink: 0;
+}
+
+.driftview-mode {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.driftview-mode:hover {
+  color: var(--text-hi);
+}
+.driftview-mode.active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent-bright);
+}
+
+.driftview-empty {
+  flex-direction: column;
+  gap: 16px;
+}
+
+.drift-breaking-controls {
+  align-items: center;
+  border-top: 1px solid var(--line);
+}
+
+.drift-controls-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+  width: 100%;
+}
+
+.drift-check-btn.ghost {
+  background: var(--surface-1);
+  color: var(--text-mid);
+  border: 1px solid var(--line-3);
+}
+.drift-check-btn.ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-1) 60%, #fff 6%);
+  color: var(--text-hi);
+}
+
+.breaking-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.breaking-desc {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+}
+
+/* ── Delete request affordance + confirm ──────────────────────────── */
+.tree-delete {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 4px;
+  line-height: 1;
+  opacity: 0;
+  flex-shrink: 0;
+}
+.tree-request:hover .tree-delete {
+  opacity: 1;
+}
+.tree-delete:hover {
+  color: var(--err);
+}
+
+.confirm-sub {
+  font-size: 12.5px;
+  color: var(--text-mid);
+  line-height: 1.6;
+  margin: 0;
+}
+.confirm-sub code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-hi);
+}
+
+.prompt-delete {
+  background: var(--err);
+  color: #2a0a07;
+}
+.prompt-delete:hover {
+  filter: brightness(1.08);
+}
+
+/* ── Body tab: type selector + form-data ──────────────────────────── */
+.body-tab {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.body-type-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.body-type-chips {
+  display: flex;
+  gap: 4px;
+  background: var(--surface-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-ctl);
+  padding: 3px;
+}
+
+.body-type-chip {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 11px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.body-type-chip:hover {
+  color: var(--text-hi);
+}
+.body-type-chip.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent-bright);
+}
+
+.body-type-mime {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.formdata-editor {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.body-editor-wrap {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Env: add-variable row ────────────────────────────────────────── */
+.env-var-add {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line-2);
+}
+
+.env-var-newkey {
+  min-width: 58px;
+  width: 58px;
+  flex-shrink: 0;
+  background: var(--surface-1);
+  color: var(--syn-key);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  outline: none;
+}
+.env-var-newkey:focus {
+  border-color: var(--accent);
+}
+
+.env-var-addbtn {
+  background: var(--surface-2);
+  border: 1px solid var(--line-3);
+  color: var(--accent-bright);
+  border-radius: 6px;
+  width: 24px;
+  flex-shrink: 0;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.env-var-addbtn:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* ── Activity bar (clear history) ─────────────────────────────────── */
+.activity-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.activity-count {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.activity-clear {
+  background: var(--surface-2);
+  border: 1px solid var(--line-3);
+  color: var(--text-mid);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.activity-clear:hover {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 35%, transparent);
+}
+
+/* ── Coming soon (Auth / Pre Run stubs) ───────────────────────────── */
+.coming-soon {
+  max-width: 360px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.coming-soon-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--accent-bright);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 5px;
+  padding: 3px 9px;
+}
+.coming-soon-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-hi);
+  margin: 4px 0 0;
+}
+.coming-soon-sub {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  margin: 0;
+}
+.coming-soon-sub code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--accent-bright);
+}
+
+/* ── Chain builder ────────────────────────────────────────────────── */
+.chain-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.chain-builder-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chain-builder-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-hi);
+  margin: 0;
+}
+.chain-builder-hint {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.chainb-card {
+  background: var(--surface-card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-card);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chainb-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chainb-num {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  color: var(--accent-bright);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.chainb-run {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-1);
+  color: var(--text-hi);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+}
+
+.chainb-icon {
+  background: var(--surface-2);
+  border: 1px solid var(--line-3);
+  color: var(--text-dim);
+  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+}
+.chainb-icon:hover:not(:disabled) {
+  color: var(--text-hi);
+}
+.chainb-icon:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.chainb-del:hover {
+  color: var(--err);
+}
+
+.chainb-extracts {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  background: var(--panel-deep);
+  border-radius: var(--r-ctl);
+}
+.chainb-extract-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+.chainb-extract-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chainb-extract-name {
+  width: 110px;
+  flex-shrink: 0;
+  background: var(--surface-1);
+  color: var(--accent-bright);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 4px 7px;
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  outline: none;
+}
+.chainb-arrow {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+.chainb-extract-path {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-1);
+  color: var(--syn-key);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 4px 7px;
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  outline: none;
+}
+.chainb-extract-name:focus,
+.chainb-extract-path:focus {
+  border-color: var(--accent);
+}
+.chainb-add-extract {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: var(--accent-bright);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.chainb-persist {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--text-mid);
+  cursor: pointer;
+}
+.chainb-persist input {
+  accent-color: var(--accent);
+}
+
+.chainb-add-step {
+  align-self: flex-start;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent-bright);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: var(--r-ctl);
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chainb-add-step:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.chainb-save-hint {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin: 0;
+}

@@ -48,6 +48,17 @@ pub struct IpcCollectionInfo {
     pub source_dir: Option<String>,
 }
 
+/// Result of comparing a fresh response against a saved snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotComparison {
+    /// Whether a saved snapshot exists for this request.
+    pub exists: bool,
+    pub status_old: u16,
+    pub status_new: u16,
+    /// Body diff entries (already filtered by the request's snapshot.ignore rules).
+    pub entries: Vec<wire_core::diff::DiffEntry>,
+}
+
 /// Result of scanning a codebase for HTTP endpoints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpcScanResult {

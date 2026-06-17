@@ -132,6 +132,48 @@ export interface ChainResult {
   error: string | null;
 }
 
+/** A single field difference between a saved snapshot and a fresh response */
+export interface DiffEntry {
+  path: string;
+  kind: "Added" | "Removed" | "Changed";
+  old: unknown;
+  new: unknown;
+}
+
+/** Result of comparing a response against a saved golden-file snapshot */
+export interface SnapshotComparison {
+  exists: boolean;
+  status_old: number;
+  status_new: number;
+  entries: DiffEntry[];
+}
+
+/** A detected API contract change (from `wire breaking`) */
+export interface ContractChange {
+  severity: "breaking" | "warning" | "info";
+  method: string;
+  route: string;
+  description: string;
+}
+
+/** Full breaking-change report comparing the collection to its saved baseline */
+export interface BreakingReport {
+  changes: ContractChange[];
+  breaking_count: number;
+  warning_count: number;
+  info_count: number;
+}
+
+/** Result of validating a single secret reference (from `wire env check`) */
+export interface SecretCheckResult {
+  env_name: string;
+  var_name: string;
+  source: string;
+  key: string;
+  resolved: boolean;
+  error: string | null;
+}
+
 /** Collection info returned after opening a .wire/ directory */
 export interface IpcCollectionInfo {
   name: string;
