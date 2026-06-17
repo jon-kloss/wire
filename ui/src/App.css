@@ -19,7 +19,13 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--response-w, 1fr);
+  /* Builder keeps a 360px floor; the response track is capped at its dragged
+     width but may shrink, so a too-wide saved width never collapses the
+     builder when the window is smaller. */
+  grid-template-columns:
+    var(--sidebar-w)
+    minmax(360px, 1fr)
+    minmax(0, var(--response-w, 1fr));
 }
 
 /* ── Title bar ────────────────────────────────────────────────────── */

@@ -236,29 +236,29 @@ function App() {
     else localStorage.setItem("wire.responseWidth", String(responseWidth));
   }, [responseWidth]);
 
-  /** Drag the request/response divider to resize the response panel. */
-  const startColResize = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    const grid = appGridRef.current;
-    if (!grid) return;
-    const SIDEBAR = 236;
-    const MIN = 320;
-    const onMove = (ev: PointerEvent) => {
-      const rect = grid.getBoundingClientRect();
-      const max = rect.width - SIDEBAR - 360;
-      const w = Math.max(MIN, Math.min(rect.right - ev.clientX, max));
-      setResponseWidth(w);
-    };
-    const onUp = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
-    };
+  /** Drag the request/response divider to resize the response panel. Uses
+   *  pointer capture so moves keep firing off-element and nothing leaks. */
+  const onColResizeDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
     document.body.style.userSelect = "none";
     document.body.style.cursor = "col-resize";
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
+  }, []);
+
+  const onColResizeMove = useCallback((e: React.PointerEvent) => {
+    if (e.buttons !== 1) return; // only while the primary button is held
+    const grid = appGridRef.current;
+    if (!grid) return;
+    const rect = grid.getBoundingClientRect();
+    const w = Math.max(
+      320,
+      Math.min(rect.right - e.clientX, rect.width - 236 - 360)
+    );
+    setResponseWidth(w);
+  }, []);
+
+  const onColResizeUp = useCallback(() => {
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
   }, []);
 
   // URL bar: overflow ("⋯") menu + hovered-variable tooltip
@@ -2769,8 +2769,13 @@ function App() {
               value={url}
               onChange={(e) => {
                 setUrl(e.target.value);
-                if (urlHighlightRef.current)
-                  urlHighlightRef.current.scrollLeft = e.target.scrollLeft;
+                setUrlVarHover(null);
+                // Sync after the input reflows with its new value/scroll.
+                requestAnimationFrame(() => {
+                  if (urlHighlightRef.current && urlInputRef.current)
+                    urlHighlightRef.current.scrollLeft =
+                      urlInputRef.current.scrollLeft;
+                });
               }}
               onScroll={(e) => {
                 if (urlHighlightRef.current)
@@ -3681,7 +3686,10 @@ function App() {
       <section className="response-viewer">
         <div
           className="col-resizer"
-          onPointerDown={startColResize}
+          onPointerDown={onColResizeDown}
+          onPointerMove={onColResizeMove}
+          onPointerUp={onColResizeUp}
+          onPointerCancel={onColResizeUp}
           onDoubleClick={() => setResponseWidth(null)}
           title="Drag to resize · double-click to reset"
         />
