@@ -671,11 +671,11 @@ pub async fn evaluate_tests(
 
 /// Compute a request's path relative to the collection dir (e.g.
 /// `requests/users/list.wire.yaml`) for snapshot path mapping.
-fn snapshot_relative(wire_dir: &Path, file: &str) -> String {
+fn snapshot_relative(wire_dir: &Path, file: &str) -> Result<String, String> {
     Path::new(file)
         .strip_prefix(wire_dir)
         .map(|p| p.to_string_lossy().replace('\\', "/"))
-        .unwrap_or_else(|_| file.to_string())
+        .map_err(|_| format!("Request file is not inside the collection: {file}"))
 }
 
 /// Save the given response as the golden-file snapshot for a request.
@@ -691,7 +691,7 @@ pub async fn save_response_snapshot(
         .await
         .clone()
         .ok_or("Open a collection to save snapshots.")?;
-    let rel = snapshot_relative(&wire_dir, &file);
+    let rel = snapshot_relative(&wire_dir, &file)?;
     let snap = wire_core::snapshot::snapshot_from_response(
         response.status,
         &response.headers,
@@ -716,7 +716,7 @@ pub async fn compare_response_snapshot(
         .await
         .clone()
         .ok_or("Open a collection to compare snapshots.")?;
-    let rel = snapshot_relative(&wire_dir, &file);
+    let rel = snapshot_relative(&wire_dir, &file)?;
     let saved = wire_core::snapshot::load_snapshot(&wire_dir, &rel).map_err(|e| e.to_string())?;
     let current = wire_core::snapshot::snapshot_from_response(
         response.status,
@@ -749,10 +749,21 @@ pub async fn compare_response_snapshot(
     }
 }
 
-/// Delete a request `.wire.yaml` file from disk.
+/// Delete a request `.wire.yaml` file from disk. Confined to the open collection.
 #[tauri::command]
-pub async fn delete_request(file: String) -> Result<(), String> {
-    std::fs::remove_file(&file).map_err(|e| e.to_string())
+pub async fn delete_request(file: String, state: State<'_, AppState>) -> Result<(), String> {
+    let wire_dir = state
+        .collection_path
+        .lock()
+        .await
+        .clone()
+        .ok_or("Open a collection to delete requests.")?;
+    let canon = Path::new(&file).canonicalize().map_err(|e| e.to_string())?;
+    let canon_dir = wire_dir.canonicalize().map_err(|e| e.to_string())?;
+    if !canon.starts_with(&canon_dir) {
+        return Err("Refusing to delete a file outside the collection.".to_string());
+    }
+    std::fs::remove_file(&canon).map_err(|e| e.to_string())
 }
 
 /// Save the current collection's contract as the breaking-change baseline.

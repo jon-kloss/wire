@@ -263,8 +263,9 @@ function App() {
   const [envSelectedMap, setEnvSelectedMap] = useState<Record<string, string | null>>({});
   const [envVarsMap, setEnvVarsMap] = useState<Record<string, Record<string, string>>>({});
   const [expandedEnvSections, setExpandedEnvSections] = useState<Set<string>>(new Set());
-  const [newVarKey, setNewVarKey] = useState("");
-  const [newVarValue, setNewVarValue] = useState("");
+  const [newVar, setNewVar] = useState<
+    Record<string, { key: string; value: string }>
+  >({});
   const [expandedTemplateSections, setExpandedTemplateSections] = useState<Set<string>>(new Set());
   const [foldersExpanded, setFoldersExpanded] = useState(true);
   const [selectedRequestPath, setSelectedRequestPath] = useState<string | null>(
@@ -291,6 +292,11 @@ function App() {
   // Derived template state for active collection
   const activeCollection = collections.find((c) => c.path === activeCollectionPath);
   const activeTemplates = activeCollection?.info.templates ?? [];
+
+  // The response Tests tab only exists when there are results; fall back to
+  // Body so a stuck "tests" selection never hides the response.
+  const effRespTab =
+    responseTab === "tests" && testResults.length === 0 ? "body" : responseTab;
 
   // Breadcrumb segments for the title bar: collection / folder… / request
   const breadcrumb: string[] = (() => {
@@ -554,13 +560,13 @@ function App() {
   /** Add a new variable to the selected environment. */
   const handleAddVariable = useCallback(
     (collectionPath: string, envName: string) => {
-      const key = newVarKey.trim();
+      const draft = newVar[collectionPath] ?? { key: "", value: "" };
+      const key = draft.key.trim();
       if (!key) return;
-      handleSaveEnvVar(collectionPath, envName, key, newVarValue);
-      setNewVarKey("");
-      setNewVarValue("");
+      handleSaveEnvVar(collectionPath, envName, key, draft.value);
+      setNewVar((prev) => ({ ...prev, [collectionPath]: { key: "", value: "" } }));
     },
-    [newVarKey, newVarValue, handleSaveEnvVar]
+    [newVar, handleSaveEnvVar]
   );
 
   const handleNewRequest = useCallback(() => {
@@ -830,29 +836,28 @@ function App() {
     [collections, selectedRequestPath, handleNewRequest]
   );
 
-  /** Build the request body from the current body-type + editors. */
-  const buildBody = useCallback(
-    (m: string): WireBody | null => {
-      if (!["POST", "PUT", "PATCH"].includes(m)) return null;
-      if (bodyType === "formdata") {
-        const content: Record<string, string> = {};
-        for (const p of formDataPairs) {
-          if (p.key.trim() && p.enabled !== false) content[p.key.trim()] = p.value;
-        }
-        return Object.keys(content).length
-          ? { type: "formdata", content }
-          : null;
+  /** Build the request body from the current body-type + editors.
+   *  Method-agnostic (templates have no method); send/save gate on the method. */
+  const buildBody = useCallback((): WireBody | null => {
+    if (bodyType === "formdata") {
+      const content: Record<string, string> = {};
+      for (const p of formDataPairs) {
+        if (p.key.trim() && p.enabled !== false) content[p.key.trim()] = p.value;
       }
-      if (!bodyText.trim()) return null;
-      if (bodyType === "text") return { type: "text", content: bodyText };
-      try {
-        return { type: "json", content: JSON.parse(bodyText) };
-      } catch {
-        return { type: "text", content: bodyText };
-      }
-    },
-    [bodyType, bodyText, formDataPairs]
-  );
+      return Object.keys(content).length
+        ? { type: "formdata", content }
+        : null;
+    }
+    if (!bodyText.trim()) return null;
+    if (bodyType === "text") return { type: "text", content: bodyText };
+    try {
+      return { type: "json", content: JSON.parse(bodyText) };
+    } catch {
+      return { type: "text", content: bodyText };
+    }
+  }, [bodyType, bodyText, formDataPairs]);
+
+  const methodHasBody = (m: string) => ["POST", "PUT", "PATCH"].includes(m);
 
   const handleSaveRequest = useCallback(async () => {
     if (!activeCollectionPath) {
@@ -898,7 +903,7 @@ function App() {
         }
       }
 
-      const body = buildBody(method);
+      const body = methodHasBody(method) ? buildBody() : null;
 
       const params: Record<string, string> = {};
       for (const p of queryParams) {
@@ -1057,7 +1062,7 @@ function App() {
         }
       }
 
-      const body = buildBody(effMethod);
+      const body = methodHasBody(effMethod) ? buildBody() : null;
 
       const params: Record<string, string> = {};
       for (const p of queryParams) {
@@ -1566,15 +1571,17 @@ function App() {
           >
             Activity
           </button>
-          <button
-            className={`sidebar-tab ${sidebarTab === "drift" ? "active" : ""}`}
-            onClick={() => {
-              setSidebarTab("drift");
-              setDropdownOpen(false);
-            }}
-          >
-            Drift
-          </button>
+          {collections.length > 0 && (
+            <button
+              className={`sidebar-tab ${sidebarTab === "drift" ? "active" : ""}`}
+              onClick={() => {
+                setSidebarTab("drift");
+                setDropdownOpen(false);
+              }}
+            >
+              Drift
+            </button>
+          )}
         </div>
 
         {sidebarTab === "collections" && (
@@ -1807,15 +1814,31 @@ function App() {
                                           className="env-var-newkey"
                                           type="text"
                                           placeholder="new key"
-                                          value={newVarKey}
-                                          onChange={(e) => setNewVarKey(e.target.value)}
+                                          value={newVar[path]?.key ?? ""}
+                                          onChange={(e) =>
+                                            setNewVar((prev) => ({
+                                              ...prev,
+                                              [path]: {
+                                                key: e.target.value,
+                                                value: prev[path]?.value ?? "",
+                                              },
+                                            }))
+                                          }
                                         />
                                         <input
                                           className="env-var-input"
                                           type="text"
                                           placeholder="value"
-                                          value={newVarValue}
-                                          onChange={(e) => setNewVarValue(e.target.value)}
+                                          value={newVar[path]?.value ?? ""}
+                                          onChange={(e) =>
+                                            setNewVar((prev) => ({
+                                              ...prev,
+                                              [path]: {
+                                                key: prev[path]?.key ?? "",
+                                                value: e.target.value,
+                                              },
+                                            }))
+                                          }
                                           onKeyDown={(e) => {
                                             if (e.key === "Enter")
                                               handleAddVariable(
@@ -2287,7 +2310,7 @@ function App() {
         )}
       </aside>
 
-      {sidebarTab === "drift" ? (
+      {sidebarTab === "drift" && collections.length > 0 ? (
         <section className="driftview">
           <div className="driftview-modes">
             <button
@@ -2553,14 +2576,7 @@ function App() {
                     }
                   }
                 }
-                let body: WireBody | null = null;
-                if (bodyText.trim()) {
-                  try {
-                    body = { type: "json", content: JSON.parse(bodyText) };
-                  } catch {
-                    body = { type: "text", content: bodyText };
-                  }
-                }
+                const body = buildBody();
                 const params: Record<string, string> = {};
                 for (const p of queryParams) {
                   if (p.key.trim() && p.enabled !== false) {
@@ -2681,14 +2697,7 @@ function App() {
                       }
                     }
                   }
-                  let body: WireBody | null = null;
-                  if (bodyText.trim() && ["POST", "PUT", "PATCH"].includes(method)) {
-                    try {
-                      body = { type: "json", content: JSON.parse(bodyText) };
-                    } catch {
-                      body = { type: "text", content: bodyText };
-                    }
-                  }
+                  const body = buildBody();
                   const params: Record<string, string> = {};
                   for (const p of queryParams) {
                     if (p.key.trim() && p.enabled !== false) {
@@ -3625,7 +3634,7 @@ function App() {
                 </button>
               )}
             </div>
-            {responseTab === "body" ? (
+            {effRespTab === "body" ? (
               <div className="response-body-wrap">
                 <Suspense
                   fallback={
@@ -3657,7 +3666,7 @@ function App() {
                   />
                 </Suspense>
               </div>
-            ) : responseTab === "headers" ? (
+            ) : effRespTab === "headers" ? (
               <div className="panel-body">
                 <div className="response-headers">
                   {Object.entries(response.headers).map(([key, value]) => (

@@ -885,10 +885,15 @@ fn is_editable_source(name: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Path of a request file relative to the collection dir, for snapshot mapping.
-fn snapshot_relative(wire_dir: &Path, file: &Path) -> String {
+fn snapshot_relative(wire_dir: &Path, file: &Path) -> AppResult<String> {
     file.strip_prefix(wire_dir)
         .map(|p| p.to_string_lossy().replace('\\', "/"))
-        .unwrap_or_else(|_| file.to_string_lossy().to_string())
+        .map_err(|_| {
+            AppError(format!(
+                "Request file is not inside the collection: {}",
+                file.display()
+            ))
+        })
 }
 
 /// Save the given response as the golden-file snapshot for a request.
@@ -904,7 +909,7 @@ pub async fn save_response_snapshot(
             .clone()
             .ok_or_else(|| AppError("Open a collection to save snapshots.".to_string()))?
     };
-    let rel = snapshot_relative(&wire_dir, &file);
+    let rel = snapshot_relative(&wire_dir, &file)?;
     let snap = wire_core::snapshot::snapshot_from_response(
         args.response.status,
         &args.response.headers,
@@ -928,7 +933,7 @@ pub async fn compare_response_snapshot(
             .clone()
             .ok_or_else(|| AppError("Open a collection to compare snapshots.".to_string()))?
     };
-    let rel = snapshot_relative(&wire_dir, &file);
+    let rel = snapshot_relative(&wire_dir, &file)?;
     let saved = wire_core::snapshot::load_snapshot(&wire_dir, &rel).map_err(|e| e.to_string())?;
     let current = wire_core::snapshot::snapshot_from_response(
         args.response.status,
@@ -1005,24 +1010,29 @@ pub async fn check_breaking(
 pub async fn check_secrets(
     Extension(session): Session,
 ) -> AppResult<Json<Vec<wire_core::variables::secrets::SecretCheckResult>>> {
-    let inner = session.inner.lock().await;
-    let collection = inner
-        .collection
-        .as_ref()
-        .ok_or_else(|| AppError("Open a collection to check secrets.".to_string()))?;
-    let project_dir = collection
-        .metadata
-        .source_dir
-        .as_ref()
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            inner
-                .collection_path
-                .as_ref()
-                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        });
+    // Snapshot what we need and release the shared session lock before doing
+    // filesystem I/O (.env reads) so other commands on this session aren't blocked.
+    let (environments, project_dir) = {
+        let inner = session.inner.lock().await;
+        let collection = inner
+            .collection
+            .as_ref()
+            .ok_or_else(|| AppError("Open a collection to check secrets.".to_string()))?;
+        let project_dir = collection
+            .metadata
+            .source_dir
+            .as_ref()
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                inner
+                    .collection_path
+                    .as_ref()
+                    .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            });
+        (collection.environments.clone(), project_dir)
+    };
     let results = wire_core::variables::secrets::check_collection_secrets(
-        &collection.environments,
+        &environments,
         project_dir.as_deref(),
     );
     Ok(Json(results))
