@@ -6,6 +6,7 @@ pub mod drift;
 pub mod error;
 pub mod history;
 pub mod http;
+pub mod mock;
 pub mod scan;
 pub mod snapshot;
 pub mod test;
